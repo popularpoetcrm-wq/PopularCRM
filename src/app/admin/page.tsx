@@ -1,10 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { format } from "date-fns";
 import { ru } from "date-fns/locale";
 import { addCalendarDays, attendanceStatusLabel } from "@/lib/attendance-labels";
+import { formatYmdLabel, warsawYmd } from "@/lib/format-date";
 
 type DaySession = {
   id: string;
@@ -18,11 +19,6 @@ type DaySession = {
   cancel_risk: boolean;
   roster: Array<{ fullName: string; coming: boolean; status: string }>;
 };
-
-function todayLocalYmd() {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-}
 
 export default function AdminHome() {
   const [stats, setStats] = useState({
@@ -42,13 +38,15 @@ export default function AdminHome() {
       group_title?: string | null;
     }>
   >([]);
-  const [date, setDate] = useState(todayLocalYmd);
+  const [date, setDate] = useState(() => warsawYmd());
   const [mode, setMode] = useState<"demo" | "supabase">("demo");
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [jobMsg, setJobMsg] = useState("");
   const [busy, setBusy] = useState(false);
+  const loadSeq = useRef(0);
 
   async function load(forDate = date) {
+    const seq = ++loadSeq.current;
     const [g, p, s, d, b] = await Promise.all([
       fetch("/api/v1/admin/groups").then((r) => r.json()),
       fetch("/api/v1/admin/payments").then((r) => r.json()),
@@ -58,6 +56,9 @@ export default function AdminHome() {
       ),
       fetch("/api/v1/admin/birthdays?days=30").then((r) => r.json()),
     ]);
+    // Ignore stale responses when user already switched the day
+    if (seq !== loadSeq.current) return;
+
     setStats({
       groups: g.ok ? g.data.length : 0,
       debt: p.ok
@@ -71,8 +72,8 @@ export default function AdminHome() {
               ["pending", "partial"].includes(x.status),
             )
             .reduce(
-              (s: number, x: { amount: number; amount_paid: number }) =>
-                s + Math.max(0, Number(x.amount) - Number(x.amount_paid)),
+              (sum: number, x: { amount: number; amount_paid: number }) =>
+                sum + Math.max(0, Number(x.amount) - Number(x.amount_paid)),
               0,
             )
         : 0,
@@ -81,7 +82,7 @@ export default function AdminHome() {
     if (d.ok) {
       setSessions(d.data.sessions ?? []);
       if (d.data.mode) setMode(d.data.mode);
-      if (d.data.date) setDate(d.data.date);
+      // Do NOT setDate from response — that races with date picker and jumps the day
     }
     if (b.ok) setBirthdays(b.data.birthdays ?? []);
   }
@@ -101,7 +102,7 @@ export default function AdminHome() {
         ? `Jobs · reminders ${json.data.reminders}, expired makeups ${json.data.expiredMakeups}`
         : json.error,
     );
-    await load();
+    await load(date);
   }
 
   async function seed() {
@@ -114,7 +115,7 @@ export default function AdminHome() {
         ? `Seed: ${json.data.group} · ${json.data.enrollments} учеников`
         : json.error,
     );
-    await load();
+    await load(date);
   }
 
   async function remindDebtors() {
@@ -143,7 +144,7 @@ export default function AdminHome() {
         ? `Расписание: запланировано ${json.data.planned}, новых ${json.data.created} (8 недель)`
         : json.error,
     );
-    await load();
+    await load(date);
   }
 
   async function finalize(sessionId: string) {
@@ -157,10 +158,10 @@ export default function AdminHome() {
     const json = await res.json();
     setBusy(false);
     setJobMsg(json.ok ? "Занятие закрыто" : json.error);
-    await load();
+    await load(date);
   }
 
-  const today = todayLocalYmd();
+  const today = warsawYmd();
   const yesterday = addCalendarDays(today, -1);
 
   return (
@@ -289,7 +290,7 @@ export default function AdminHome() {
 
       <section className="space-y-3">
         <h2 className="font-display text-2xl">
-          Занятия · {format(new Date(date + "T12:00:00"), "d MMMM", { locale: ru })}
+          Занятия · {formatYmdLabel(date)}
         </h2>
         {!sessions.length ? (
           <div className="glass p-8 text-center text-fog">

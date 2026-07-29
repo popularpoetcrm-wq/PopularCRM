@@ -11,6 +11,7 @@ import {
   addCalendarDays,
   attendanceStatusLabel,
 } from "@/lib/attendance-labels";
+import { warsawYmd } from "@/lib/format-date";
 
 type Roster = {
   enrollmentId: string;
@@ -47,11 +48,6 @@ const MARK_OPTIONS = [
   "cancelled_by_studio",
 ] as const;
 
-function todayLocalYmd() {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-}
-
 function initials(name: string) {
   const parts = name.trim().split(/\s+/).filter(Boolean);
   if (!parts.length) return "?";
@@ -62,7 +58,7 @@ function initials(name: string) {
 function AttendanceInner() {
   const search = useSearchParams();
   const [date, setDate] = useState(
-    () => search.get("date") || todayLocalYmd(),
+    () => search.get("date") || warsawYmd(),
   );
   const [sessions, setSessions] = useState<Session[]>([]);
   const [sessionId, setSessionId] = useState(search.get("session") || "");
@@ -110,7 +106,7 @@ function AttendanceInner() {
   }, [sessionId, sessions]);
 
   const current = sessions.find((s) => s.id === sessionId);
-  const today = todayLocalYmd();
+  const today = warsawYmd();
   const yesterday = addCalendarDays(today, -1);
 
   async function submit() {

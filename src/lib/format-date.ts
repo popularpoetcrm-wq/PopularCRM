@@ -115,3 +115,20 @@ export function upcomingBirthdays(
   return out;
 }
 
+/** Format YYYY-MM-DD for UI without Date timezone shifts. */
+export function formatYmdLabel(
+  ymd: string,
+  locale = "ru-RU",
+  opts?: Intl.DateTimeFormatOptions,
+): string {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(ymd)) return ymd;
+  const [y, m, d] = ymd.split("-").map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d, 12, 0, 0));
+  return new Intl.DateTimeFormat(locale, {
+    timeZone: "UTC",
+    day: "numeric",
+    month: "long",
+    ...opts,
+  }).format(dt);
+}
+
