@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 /**
- * Local Telegram poller: forwards getUpdates to /api/v1/webhooks/telegram
- * (Telegram cannot reach localhost webhook).
+ * Local Telegram poller — ONLY for localhost dev.
+ * On production, setWebhook to https://popularcrm.vercel.app/api/v1/webhooks/telegram
+ * and do NOT run this script (it deletes the webhook).
  *
  * Usage: node --env-file=.env.local scripts/tg-poll.mjs
  */
@@ -15,11 +16,19 @@ if (!token) {
   process.exit(1);
 }
 
+if (!base.includes("localhost") && !base.includes("127.0.0.1")) {
+  console.error(
+    "Refusing to poll: NEXT_PUBLIC_APP_URL is not localhost.\n" +
+      "Production must use setWebhook, not this poller.",
+  );
+  process.exit(1);
+}
+
 let offset = 0;
 console.log("Polling @" + (process.env.TELEGRAM_BOT_USERNAME || "bot"));
 console.log("Forward →", base + "/api/v1/webhooks/telegram");
+console.warn("NOTE: deleteWebhook — stop this before enabling prod webhook.");
 
-// clear webhook so getUpdates works
 await fetch(`https://api.telegram.org/bot${token}/deleteWebhook`, {
   method: "POST",
   headers: { "Content-Type": "application/json" },

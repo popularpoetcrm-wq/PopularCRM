@@ -175,6 +175,37 @@ export default function AdminStudentsPage() {
     if (json.ok) await load();
   }
 
+  async function openAccessForAll() {
+    if (
+      !confirm(
+        "Открыть кабинет: активировать вход по email + разослать ссылки в Telegram тем, у кого бот привязан?",
+      )
+    ) {
+      return;
+    }
+    setMessage("Открываю доступ…");
+    const res = await fetch("/api/v1/admin/students/open-access", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sendTelegram: true }),
+    });
+    const json = await res.json();
+    if (!json.ok) {
+      setMessage(json.error);
+      return;
+    }
+    const d = json.data as {
+      activated_email: number;
+      telegram_sent: number;
+      links_created: number;
+      note: string;
+    };
+    setMessage(
+      `Готово: email-вход ${d.activated_email}, ссылок ${d.links_created}, в TG ${d.telegram_sent}. ${d.note}`,
+    );
+    await load();
+  }
+
   async function importCsv() {
     const res = await fetch("/api/v1/admin/students", {
       method: "PATCH",
@@ -229,6 +260,14 @@ export default function AdminStudentsPage() {
         <p className="text-fog">
           По группам · взрослые · ребёнок+родитель · CSV · инвайты
         </p>
+        <div className="mt-3 flex flex-wrap gap-2">
+          <button type="button" className="btn btn-primary" onClick={openAccessForAll}>
+            Открыть кабинет всем
+          </button>
+          <button type="button" className="btn btn-ghost" onClick={inviteSelected}>
+            Инвайт выбранным
+          </button>
+        </div>
       </div>
 
       <div className="flex flex-wrap gap-2">

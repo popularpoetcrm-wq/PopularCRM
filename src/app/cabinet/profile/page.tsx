@@ -46,7 +46,9 @@ export default function ProfilePage() {
   const [form, setForm] = useState<ProfileForm>(emptyForm);
   const [children, setChildren] = useState<Child[]>([]);
   const [parents, setParents] = useState<Person[]>([]);
-  const [groups, setGroups] = useState<Array<{ title: string }>>([]);
+  const [groups, setGroups] = useState<
+    Array<{ title: string; subtitle?: string; schedule_label?: string | null }>
+  >([]);
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
@@ -210,9 +212,18 @@ export default function ProfilePage() {
         {groups.length ? (
           <div>
             <p className="text-xs uppercase tracking-wide text-fog">Группы</p>
-            <p className="mt-1 font-semibold">
-              {groups.map((g) => g.title).join(", ")}
-            </p>
+            <ul className="mt-2 space-y-2">
+              {groups.map((g) => (
+                <li key={g.title}>
+                  <p className="font-semibold">{g.title}</p>
+                  <p className="text-xs text-fog">
+                    {g.subtitle && g.subtitle !== g.title
+                      ? g.subtitle
+                      : g.schedule_label || "—"}
+                  </p>
+                </li>
+              ))}
+            </ul>
           </div>
         ) : null}
 

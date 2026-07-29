@@ -267,7 +267,12 @@ export async function invitePersonDb(
     await db.from("persons").update({ email }).eq("id", target.id);
     target.email = email;
   }
-  if (!target.email) throw new Error("Нужен email для инвайта");
+  if (!target.email) {
+    // Synthetic email so TG-linked students can get a magic link without real mail
+    const synthetic = `tg.${String(target.id).replace(/-/g, "").slice(0, 12)}@cabinet.local`;
+    await db.from("persons").update({ email: synthetic }).eq("id", target.id);
+    target.email = synthetic;
+  }
 
   const token = nanoid(24);
   const expires = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
@@ -296,7 +301,9 @@ export async function invitePersonDb(
   const magicUrl = `${appBaseUrl()}/login/magic?token=${token}`;
   const env = getEnv();
   let emailed = false;
-  if (env.RESEND_API_KEY) {
+  const realEmail =
+    Boolean(target.email) && !String(target.email).endsWith("@cabinet.local");
+  if (env.RESEND_API_KEY && realEmail) {
     const { Resend } = await import("resend");
     const resend = new Resend(env.RESEND_API_KEY);
     await resend.emails.send({
@@ -346,6 +353,149 @@ export async function inviteGroupDb(groupId: string, actorId?: string) {
     .eq("status", "active");
   const ids = [...new Set((enrollments ?? []).map((e) => e.student_person_id))];
   return inviteManyDb(ids, actorId);
+}
+
+/**
+ * Open cabinet without hand-sending invites one by one:
+ * - activate everyone who already has a real email (OTP login works)
+ * - optionally create magic links + push to Telegram for linked accounts
+ */
+export async function openCabinetAccessDb(opts?: {
+  actorId?: string;
+  sendTelegram?: boolean;
+  onlyPersonIds?: string[];
+}) {
+  const db = getAdminClient();
+  const sendTg = opts?.sendTelegram !== false;
+  const { sendTelegramMessage } = await import("@/integrations/telegram");
+
+  let query = db
+    .from("persons")
+    .select("id, full_name, email, onboarding_status, tenant_id")
+    .eq("status", "active");
+  if (opts?.onlyPersonIds?.length) {
+    query = query.in("id", opts.onlyPersonIds);
+  }
+  const { data: persons, error } = await query;
+  if (error) throw new Error(error.message);
+
+  const { data: identities } = await db
+    .from("telegram_identities")
+    .select("person_id, chat_id, username")
+    .not("chat_id", "is", null);
+  const tgByPerson = new Map(
+    (identities ?? []).map((i) => [i.person_id as string, i]),
+  );
+
+  let activatedEmail = 0;
+  let linksCreated = 0;
+  let tgSent = 0;
+  const samples: Array<{ name: string; magicUrl?: string; via: string }> = [];
+
+  for (const p of persons ?? []) {
+    const email = (p.email as string | null) ?? null;
+    const isRealEmail = Boolean(email && !email.endsWith("@cabinet.local"));
+    const tg = tgByPerson.get(p.id);
+
+    if (isRealEmail) {
+      const st = p.onboarding_status as string;
+      if (st === "draft" || st === "invited") {
+        await db
+          .from("persons")
+          .update({
+            onboarding_status: "activated",
+            activated_at: new Date().toISOString(),
+          })
+          .eq("id", p.id);
+        activatedEmail += 1;
+      }
+    }
+
+    if (tg?.chat_id || opts?.onlyPersonIds?.length) {
+      try {
+        const inv = await invitePersonDb(p.id, { actorId: opts?.actorId });
+        linksCreated += 1;
+        if (sendTg && tg?.chat_id) {
+          await sendTelegramMessage({
+            chatId: tg.chat_id as number,
+            text:
+              `Привет, ${p.full_name}!\n\n` +
+              `Вход в кабинет студии:\n${inv.magicUrl}\n\n` +
+              (isRealEmail
+                ? `Или ${appBaseUrl()}/login → ${email}`
+                : `Ссылка действует 7 дней.`),
+          });
+          tgSent += 1;
+          if (samples.length < 5) {
+            samples.push({ name: p.full_name, magicUrl: inv.magicUrl, via: "telegram" });
+          }
+        } else if (samples.length < 5) {
+          samples.push({ name: p.full_name, magicUrl: inv.magicUrl, via: "link" });
+        }
+      } catch {
+        /* skip broken rows */
+      }
+    }
+  }
+
+  return {
+    persons: (persons ?? []).length,
+    activated_email: activatedEmail,
+    links_created: linksCreated,
+    telegram_sent: tgSent,
+    samples,
+    note:
+      "У кого есть настоящий email — можно просто /login. Кому привязан TG — ушла ссылка в бота.",
+  };
+}
+
+export async function issueLoginLinkForTelegramUserDb(telegramUserId: number) {
+  const db = getAdminClient();
+  const { data: identity } = await db
+    .from("telegram_identities")
+    .select("person_id, chat_id, username")
+    .eq("telegram_user_id", telegramUserId)
+    .maybeSingle();
+  if (!identity) throw new Error("Telegram не привязан к кабинету");
+  const inv = await invitePersonDb(identity.person_id);
+  return {
+    ...inv,
+    chat_id: identity.chat_id as number | null,
+    username: identity.username as string | null,
+  };
+}
+
+export async function getBotStatusForTelegramUserDb(telegramUserId: number) {
+  const db = getAdminClient();
+  const { data: identity } = await db
+    .from("telegram_identities")
+    .select("person_id, chat_id, username")
+    .eq("telegram_user_id", telegramUserId)
+    .maybeSingle();
+  if (!identity) return null;
+
+  const { data: person } = await db
+    .from("persons")
+    .select("id, full_name, email, tenant_id")
+    .eq("id", identity.person_id)
+    .maybeSingle();
+  if (!person) return null;
+
+  const dash = await getCabinetDashboardDb(person.id, person.tenant_id);
+  const next = [...(dash.schedule ?? [])]
+    .filter((s: { status: string }) => s.status === "scheduled")
+    .sort((a: { starts_at: string }, b: { starts_at: string }) =>
+      a.starts_at.localeCompare(b.starts_at),
+    )[0] as { title: string; starts_at: string } | undefined;
+
+  return {
+    person,
+    username: identity.username,
+    groups: dash.groups ?? [],
+    money: dash.money,
+    packages: dash.packages ?? [],
+    nextSession: next ?? null,
+  };
 }
 
 export async function consumeInviteTokenDb(token: string) {

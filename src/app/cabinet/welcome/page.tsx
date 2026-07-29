@@ -25,7 +25,13 @@ type Welcome = {
     telegram_username?: string | null;
   };
   onboarding_status: string;
-  groups: Array<{ title: string }>;
+  groups: Array<{
+    id?: string;
+    title: string;
+    subtitle?: string;
+    schedule_label?: string;
+    direction_label?: string;
+  }>;
   packages: Array<{ credits_available: number; credits_total: number }>;
   nextSession?: { title: string; starts_at: string };
   children: Child[];
@@ -334,12 +340,26 @@ export default function WelcomePage() {
       ) : null}
 
       <section className="glass p-5">
-        <p className="text-xs font-bold uppercase tracking-[0.14em] text-fog">Группа</p>
-        <p className="mt-2 text-lg font-semibold">
-          {data.groups.map((g) => g.title).join(", ") || "Пока без группы"}
-        </p>
+        <p className="text-xs font-bold uppercase tracking-[0.14em] text-fog">Группы</p>
+        {data.groups.length ? (
+          <ul className="mt-3 space-y-3">
+            {data.groups.map((g: { id?: string; title: string; subtitle?: string; schedule_label?: string; direction_label?: string }) => (
+              <li key={g.id ?? g.title}>
+                <p className="font-semibold">{g.title}</p>
+                <p className="text-sm text-fog">
+                  {g.subtitle && g.subtitle !== g.title
+                    ? g.subtitle
+                    : [g.direction_label, g.schedule_label].filter(Boolean).join(" · ") ||
+                      "День и время появятся в расписании"}
+                </p>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="mt-2 text-lg font-semibold">Пока без группы</p>
+        )}
         {data.nextSession ? (
-          <p className="mt-2 text-fog">
+          <p className="mt-3 text-fog">
             Ближайшее: {data.nextSession.title} ·{" "}
             {format(new Date(data.nextSession.starts_at), "d MMM HH:mm", {
               locale: pl,

@@ -14,6 +14,20 @@ type Dash = {
   payments: Array<{ status: string; brand_id?: string }>;
   schedule: Array<{ id: string; title: string; starts_at: string; status: string; myStatus?: string | null }>;
   children?: Array<{ id: string; full_name: string }>;
+  groups?: Array<{
+    id: string;
+    title: string;
+    subtitle?: string;
+    direction_label?: string | null;
+    schedule_label?: string | null;
+  }>;
+  money?: {
+    label: string;
+    debt_open: number;
+    credits_left: number | null;
+    last_paid_at?: string | null;
+    last_paid_amount?: number | null;
+  };
 };
 
 export default function CabinetHome() {
@@ -99,6 +113,26 @@ export default function CabinetHome() {
           </ul>
         </section>
       ) : null}
+
+      {data.groups?.length ? (
+        <section className="space-y-3">
+          <h2 className="font-display text-2xl">Мои группы</h2>
+          <ul className="space-y-2">
+            {data.groups.map((g) => (
+              <li key={g.id} className="glass p-4">
+                <p className="font-semibold">{g.title}</p>
+                <p className="mt-1 text-sm text-fog">
+                  {g.subtitle && g.subtitle !== g.title
+                    ? g.subtitle
+                    : [g.direction_label, g.schedule_label].filter(Boolean).join(" · ") ||
+                      "Расписание уточняется"}
+                </p>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
+
       {next ? (
         <section className="glass p-5 sm:p-6">
           <p className="text-xs font-bold uppercase tracking-[0.14em] text-fog">Ближайшее занятие</p>
@@ -155,13 +189,18 @@ export default function CabinetHome() {
               "—"
             )}
           </p>
+          <p className="mt-1 text-xs text-fog">осталось занятий</p>
         </Link>
         <Link href="/cabinet/payments" className="glass block p-5 transition hover:bg-white/10">
-          <p className="text-sm text-fog">Оплаты</p>
-          <p className="mt-2 text-3xl font-semibold">
-            {debt ? <span className="text-warn">{debt}</span> : <span className="text-ok">ок</span>}
+          <p className="text-sm text-fog">Деньги</p>
+          <p className="mt-2 text-xl font-semibold">
+            {data.money?.debt_open ? (
+              <span className="text-warn">{data.money.debt_open} PLN</span>
+            ) : (
+              <span className="text-ok">ок</span>
+            )}
           </p>
-          <p className="mt-1 text-xs text-fog">{debt ? "есть долг" : "всё оплачено"}</p>
+          <p className="mt-1 text-xs text-fog">{data.money?.label ?? (debt ? "есть долг" : "всё оплачено")}</p>
         </Link>
       </div>
 

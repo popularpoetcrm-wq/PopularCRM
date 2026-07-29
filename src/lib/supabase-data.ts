@@ -145,17 +145,35 @@ export async function getCabinetDashboardDb(personId: string, tenantId: string) 
   const groupIds = [...new Set(enrollList.map((e) => e.group_id))];
   const enrollmentIds = enrollList.map((e) => e.id);
 
-  const [{ data: groups }, { data: sessions }, { data: packages }, { data: payments }, { data: makeups }] =
-    await Promise.all([
+  const [
+    { data: groups },
+    { data: sessions },
+    { data: packages },
+    { data: payments },
+    { data: makeups },
+    { data: scheduleRules },
+  ] = await Promise.all([
       groupIds.length
-        ? db.from("groups").select("id, title, brand_id, capacity").in("id", groupIds)
-        : Promise.resolve({ data: [] as Array<{ id: string; title: string }> }),
+        ? db
+            .from("groups")
+            .select("id, title, brand_id, capacity, direction")
+            .in("id", groupIds)
+        : Promise.resolve({
+            data: [] as Array<{
+              id: string;
+              title: string;
+              brand_id?: string;
+              capacity?: number;
+              direction?: string | null;
+            }>,
+          }),
       groupIds.length
         ? db
             .from("sessions")
             .select("id, group_id, starts_at, ends_at, status")
             .in("group_id", groupIds)
             .eq("tenant_id", tenantId)
+            .gte("starts_at", new Date(Date.now() - 2 * 24 * 3600 * 1000).toISOString())
             .order("starts_at", { ascending: true })
             .limit(40)
         : Promise.resolve({ data: [] as Array<Record<string, unknown>> }),
@@ -172,13 +190,49 @@ export async function getCabinetDashboardDb(personId: string, tenantId: string) 
         .eq("payer_person_id", personId)
         .eq("tenant_id", tenantId)
         .order("created_at", { ascending: false })
-        .limit(30),
+        .limit(40),
       db
         .from("makeup_credits")
         .select("id, student_person_id, status, valid_until")
         .in("student_person_id", scopeIds)
         .eq("tenant_id", tenantId),
+      groupIds.length
+        ? db
+            .from("group_schedule_rules")
+            .select("group_id, weekday, start_time, duration_minutes, room")
+            .in("group_id", groupIds)
+        : Promise.resolve({
+            data: [] as Array<{
+              group_id: string;
+              weekday: number;
+              start_time: string;
+              duration_minutes: number | null;
+              room: string | null;
+            }>,
+          }),
     ]);
+
+  // Also payments linked via enrollment (import) when payer differs
+  let payExtra: Array<Record<string, unknown>> = [];
+  if (enrollmentIds.length) {
+    const { data } = await db
+      .from("payments")
+      .select("*")
+      .in("enrollment_id", enrollmentIds)
+      .eq("tenant_id", tenantId)
+      .order("created_at", { ascending: false })
+      .limit(40);
+    payExtra = data ?? [];
+  }
+  const paySeen = new Set<string>();
+  const paymentsMerged = [...(payments ?? []), ...payExtra].filter((p) => {
+    const id = String((p as { id: string }).id);
+    if (paySeen.has(id)) return false;
+    paySeen.add(id);
+    return true;
+  });
+  // rebind for rest of function
+  const paymentsFinal = paymentsMerged;
 
   // sessions table has no title column — use group title
   const groupMap = new Map((groups ?? []).map((g) => [g.id, g]));
@@ -243,19 +297,86 @@ export async function getCabinetDashboardDb(personId: string, tenantId: string) 
     .filter((p) => p.status === "active")
     .map((p) => packageFromRow(p, credits ?? []));
 
-  const paymentIds = (payments ?? []).map((p) => p.id);
+  const paymentIds = paymentsFinal.map((p) => (p as { id: string }).id);
   const { data: invoices } = paymentIds.length
     ? await db.from("invoices").select("*").in("payment_id", paymentIds).limit(20)
     : { data: [] as Array<Record<string, unknown>> };
+
+  const { formatGroupCard, moneyStatusLabel } = await import("@/lib/group-display");
+  const rulesByGroup = new Map<
+    string,
+    Array<{
+      weekday: number;
+      start_time: string;
+      duration_minutes?: number | null;
+      room?: string | null;
+    }>
+  >();
+  for (const r of scheduleRules ?? []) {
+    const list = rulesByGroup.get(r.group_id) ?? [];
+    list.push({
+      weekday: r.weekday,
+      start_time: r.start_time,
+      duration_minutes: r.duration_minutes,
+      room: r.room,
+    });
+    rulesByGroup.set(r.group_id, list);
+  }
+
+  const enrichedGroups = (groups ?? []).map((g) => {
+    const card = formatGroupCard({
+      title: g.title,
+      direction: (g as { direction?: string | null }).direction,
+      rules: rulesByGroup.get(g.id) ?? [],
+    });
+    return {
+      ...g,
+      direction: (g as { direction?: string | null }).direction ?? null,
+      rules: rulesByGroup.get(g.id) ?? [],
+      direction_label: card.direction_label,
+      schedule_label: card.schedule_label,
+      subtitle: card.subtitle,
+    };
+  });
+
+  const payRows = paymentsFinal as Array<{
+    amount: number | string;
+    amount_paid: number | string;
+    status: string;
+    paid_at?: string | null;
+    created_at?: string;
+  }>;
+  let debtOpen = 0;
+  for (const p of payRows) {
+    if (["pending", "partial"].includes(p.status)) {
+      debtOpen += Math.max(0, Number(p.amount) - Number(p.amount_paid));
+    }
+  }
+  const lastPaid = payRows.find((p) => p.status === "paid" || Number(p.amount_paid) > 0);
+  const creditsLeft = mappedPackages.reduce((s, p) => s + p.credits_available, 0);
+  const money = {
+    debt_open: Math.round(debtOpen),
+    debt_count: payRows.filter((p) => ["pending", "partial"].includes(p.status)).length,
+    credits_left: mappedPackages.length ? creditsLeft : null,
+    has_package: mappedPackages.length > 0,
+    last_paid_at: lastPaid?.paid_at ?? lastPaid?.created_at ?? null,
+    last_paid_amount: lastPaid ? Math.round(Number(lastPaid.amount_paid)) : null,
+    label: moneyStatusLabel({
+      debtOpen,
+      creditsLeft: mappedPackages.length ? creditsLeft : null,
+      hasPackage: mappedPackages.length > 0,
+    }),
+  };
 
   return {
     children,
     schedule: scheduleUnique,
     packages: mappedPackages,
     makeups: makeups ?? [],
-    payments: payments ?? [],
+    payments: paymentsFinal,
     invoices: invoices ?? [],
-    groups: groups ?? [],
+    groups: enrichedGroups,
+    money,
   };
 }
 

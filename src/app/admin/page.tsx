@@ -25,7 +25,12 @@ function todayLocalYmd() {
 }
 
 export default function AdminHome() {
-  const [stats, setStats] = useState({ groups: 0, debt: 0, students: 0 });
+  const [stats, setStats] = useState({
+    groups: 0,
+    debt: 0,
+    debtSum: 0,
+    students: 0,
+  });
   const [sessions, setSessions] = useState<DaySession[]>([]);
   const [birthdays, setBirthdays] = useState<
     Array<{
@@ -59,6 +64,17 @@ export default function AdminHome() {
         ? p.data.filter((x: { status: string }) =>
             ["pending", "partial"].includes(x.status),
           ).length
+        : 0,
+      debtSum: p.ok
+        ? p.data
+            .filter((x: { status: string }) =>
+              ["pending", "partial"].includes(x.status),
+            )
+            .reduce(
+              (s: number, x: { amount: number; amount_paid: number }) =>
+                s + Math.max(0, Number(x.amount) - Number(x.amount_paid)),
+              0,
+            )
         : 0,
       students: s.ok ? (s.data.students?.length ?? 0) : 0,
     });
@@ -234,6 +250,9 @@ export default function AdminHome() {
         <Link href="/admin/payments" className="glass block p-5 transition hover:bg-white/10">
           <p className="text-sm text-fog">Долги</p>
           <p className="mt-2 text-3xl font-semibold text-warn">{stats.debt}</p>
+          <p className="mt-1 text-xs text-fog">
+            {stats.debtSum ? `${Math.round(stats.debtSum)} PLN` : "сумма ок"}
+          </p>
         </Link>
       </div>
 
