@@ -6,6 +6,7 @@ import { cookies } from "next/headers";
 import type { BrandId } from "@/lib/brands";
 import { countExpectedAttendees } from "@/lib/demo-attendance";
 import { isStaff, isAdmin, isTeacherOnly } from "@/lib/auth";
+import { formatBirthDay } from "@/lib/format-date";
 
 function csvEscape(v: unknown) {
   const s = String(v ?? "");
@@ -110,7 +111,7 @@ export async function GET(req: Request) {
           person?.email ?? "",
           person?.phone ?? "",
           person?.tshirt_size ?? "",
-          person?.birth_date ?? "",
+          person?.birth_date ? formatBirthDay(person.birth_date) : "",
           group?.title ?? "",
           payment?.amount ?? "",
           payment?.amount_paid ?? "",

@@ -4,6 +4,7 @@ import { jsonError, jsonOk, getRequestId } from "@/lib/api";
 import { getSessionUser, isStaff } from "@/lib/auth";
 import { hasSupabase } from "@/lib/env";
 import { listSessionsForBrand, markAttendanceDemo } from "@/lib/demo-attendance";
+import { listSessionsForBrandDb } from "@/lib/supabase-data";
 import type { BrandId } from "@/lib/brands";
 
 const itemSchema = z.object({
@@ -19,11 +20,24 @@ const bodySchema = z.object({
   items: z.array(itemSchema).min(1),
 });
 
-export async function GET() {
+export async function GET(req: Request) {
   const user = await getSessionUser();
   if (!user || !isStaff(user.roles)) return jsonError("Forbidden", 403);
   const jar = await cookies();
   const tab = (jar.get("admin_brand_tab")?.value as BrandId) || "poet";
+  const date = new URL(req.url).searchParams.get("date") || undefined;
+  if (date && !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    return jsonError("Invalid date, expected YYYY-MM-DD");
+  }
+
+  if (hasSupabase() && user.mode === "supabase") {
+    try {
+      return jsonOk(await listSessionsForBrandDb(user.tenantId, tab, { date }));
+    } catch (e) {
+      return jsonError(e instanceof Error ? e.message : "fail", 500);
+    }
+  }
+
   return jsonOk(listSessionsForBrand(tab));
 }
 

@@ -30,6 +30,7 @@ export type DemoState = {
     title: string;
     capacity: number;
     teacher_name: string;
+    status?: "active" | "archived";
   }>;
   enrollments: Array<{
     id: string;
@@ -37,8 +38,7 @@ export type DemoState = {
     student_person_id: string;
     group_id: string;
     status: string;
-  }>;
-  packages: Array<{
+  }>;  packages: Array<{
     id: string;
     enrollment_id: string;
     status: string;

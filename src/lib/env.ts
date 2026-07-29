@@ -7,7 +7,14 @@ export const envSchema = z.object({
   /** New Supabase dashboard "publishable" key — treated as anon if anon empty */
   NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: z.string().optional(),
   SUPABASE_SERVICE_ROLE_KEY: z.string().optional(),
-  DEFAULT_TENANT_ID: z.string().uuid().optional(),
+  /** Seed UUIDs may be non-RFC (e.g. aaaa…); accept any uuid-shaped string. */
+  DEFAULT_TENANT_ID: z
+    .string()
+    .regex(
+      /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/,
+      "Invalid tenant id",
+    )
+    .optional(),
 
   P24_MERCHANT_ID: z.string().optional(),
   P24_POS_ID: z.string().optional(),

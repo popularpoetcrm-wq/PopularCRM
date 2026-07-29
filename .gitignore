@@ -24,6 +24,10 @@
 .DS_Store
 *.pem
 .demo-data/
+.venv-xlsx/
+scripts/__pycache__/
+scripts/data/
+Таблицы_реальные/
 
 # debug
 npm-debug.log*

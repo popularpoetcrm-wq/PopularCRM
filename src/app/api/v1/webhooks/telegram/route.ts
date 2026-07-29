@@ -23,10 +23,63 @@ export async function POST(req: Request) {
   if (!chatId) return jsonOk({ ignored: true });
 
   if (text.startsWith("/start")) {
+    const payload = text.replace(/^\/start(@\w+)?\s*/, "").trim();
+    const linkMatch = payload.match(/^link[_-](.+)$/i);
+
+    if (linkMatch && from && hasSupabase()) {
+      try {
+        const { confirmTelegramLinkDb } = await import("@/lib/supabase-onboarding");
+        const result = await confirmTelegramLinkDb(linkMatch[1], {
+          telegram_user_id: from.id,
+          username: from.username,
+          chat_id: chatId,
+        });
+        await sendTelegramMessage({
+          chatId,
+          text:
+            `Готово — Telegram привязан к кабинету${result.username ? ` (@${result.username})` : ""}.\n` +
+            `Напоминания о занятиях будут приходить сюда.`,
+        });
+        return jsonOk({ handled: "link", person_id: result.person_id });
+      } catch (e) {
+        await sendTelegramMessage({
+          chatId,
+          text:
+            `Не удалось привязать: ${e instanceof Error ? e.message : "ошибка"}.\n` +
+            `Открой свежую ссылку из личного кабинета.`,
+        });
+        return jsonOk({ handled: "link_failed" });
+      }
+    }
+
+    if (linkMatch && from && !hasSupabase()) {
+      try {
+        const { confirmTelegramLink } = await import("@/lib/demo-onboarding");
+        confirmTelegramLink(linkMatch[1], {
+          telegram_user_id: from.id,
+          username: from.username,
+        });
+        await sendTelegramMessage({
+          chatId,
+          text: "Telegram привязан (demo).",
+        });
+        return jsonOk({ handled: "link_demo" });
+      } catch (e) {
+        await sendTelegramMessage({
+          chatId,
+          text: e instanceof Error ? e.message : "link fail",
+        });
+        return jsonOk({ handled: "link_failed" });
+      }
+    }
+
     const appUrl = getEnv().NEXT_PUBLIC_APP_URL;
     await sendTelegramMessage({
       chatId,
-      text: `Witaj w Studio CRM!\nTwój panel: ${appUrl}/cabinet\nLogowanie: ${appUrl}/login`,
+      text:
+        `Привет! Это бот студии Popular Poet.\n` +
+        `Кабинет: ${appUrl}/cabinet\n` +
+        `Чтобы привязать аккаунт — нажми ссылку из ЛК (Профиль → Telegram).`,
     });
     return jsonOk({ handled: "start" });
   }
@@ -45,7 +98,7 @@ export async function POST(req: Request) {
     if (!identity) {
       await sendTelegramMessage({
         chatId,
-        text: "Konto Telegram nie jest powiązane. Wejdź do panelu i połącz konto.",
+        text: "Telegram ещё не привязан. Открой ссылку из личного кабинета.",
       });
       return jsonOk({ handled: "balance_unlinked" });
     }
@@ -55,17 +108,16 @@ export async function POST(req: Request) {
       .select("id, status, lesson_credits(status)")
       .eq("status", "active");
 
-    // simplified response
     await sendTelegramMessage({
       chatId,
-      text: `Aktywne pakiety: ${(packages ?? []).length}. Szczegóły w panelu.`,
+      text: `Активные пакеты: ${(packages ?? []).length}. Подробности в кабинете.`,
     });
     return jsonOk({ handled: "balance" });
   }
 
   await sendTelegramMessage({
     chatId,
-    text: "Dostępne: /start — panel webowy jest głównym miejscem obsługi.",
+    text: "Команды: /start · /balance. Основное — в веб-кабинете.",
   });
   return jsonOk({ handled: "fallback" });
 }

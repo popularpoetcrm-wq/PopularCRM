@@ -4,6 +4,8 @@ import { headers } from "next/headers";
 import { getSessionUser } from "@/lib/auth";
 import { getRequestBrand } from "@/lib/brand-server";
 import { getDemoState } from "@/lib/demo-store";
+import { hasSupabase } from "@/lib/env";
+import { getPersonOnboardingStatus } from "@/lib/supabase-data";
 
 export default async function CabinetLayout({
   children,
@@ -17,10 +19,20 @@ export default async function CabinetLayout({
   const hdrs = await headers();
   const path = hdrs.get("x-pathname") ?? hdrs.get("x-invoke-path") ?? "";
   const onWelcome = path.includes("/cabinet/welcome");
+  const onConsents = path.includes("/cabinet/consents");
 
-  if (user.mode === "demo" && !onWelcome) {
-    const person = getDemoState().persons.find((p) => p.id === user.personId);
-    const status = person?.onboarding_status ?? "complete";
+  if (!onWelcome && !onConsents) {
+    let status = "complete";
+    if (hasSupabase() && user.mode === "supabase") {
+      try {
+        status = await getPersonOnboardingStatus(user.personId);
+      } catch {
+        status = "complete";
+      }
+    } else if (user.mode === "demo") {
+      const person = getDemoState().persons.find((p) => p.id === user.personId);
+      status = person?.onboarding_status ?? "complete";
+    }
     if (status === "draft" || status === "invited" || status === "activated") {
       redirect("/cabinet/welcome");
     }
@@ -52,6 +64,12 @@ export default async function CabinetLayout({
         </Link>
         <Link href="/cabinet/payments" className="nav-link text-xs sm:text-sm">
           Оплата
+        </Link>
+        <Link href="/cabinet/profile" className="nav-link text-xs sm:text-sm">
+          Профиль
+        </Link>
+        <Link href="/cabinet/consents" className="nav-link text-xs sm:text-sm">
+          Согласия
         </Link>
       </nav>
     </div>

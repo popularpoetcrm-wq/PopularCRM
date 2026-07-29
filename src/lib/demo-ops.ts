@@ -228,10 +228,87 @@ export function createGroup(input: {
     title: input.title,
     capacity: input.capacity ?? 12,
     teacher_name: input.teacher_name ?? "Admin Studio",
+    status: "active" as const,
   };
   state.groups.push(group);
   audit("group.created", "group", group.id, group, input.actor);
   return group;
+}
+
+export function setDemoGroupStatus(
+  groupId: string,
+  status: "active" | "archived",
+  actor?: string,
+) {
+  const state = ext();
+  const group = state.groups.find((g) => g.id === groupId);
+  if (!group) return null;
+  group.status = status;
+  audit("group.status", "group", group.id, { status }, actor);
+  return group;
+}
+
+export function moveDemoEnrollment(input: {
+  enrollmentId: string;
+  toGroupId: string;
+  actor?: string;
+}) {
+  const state = ext();
+  const enr = state.enrollments.find((e) => e.id === input.enrollmentId);
+  if (!enr || enr.status !== "active") throw new Error("Enrollment not found");
+  if (enr.group_id === input.toGroupId) throw new Error("Already in this group");
+  const target = state.groups.find((g) => g.id === input.toGroupId);
+  if (!target) throw new Error("Target group not found");
+  if ((target.status ?? "active") !== "active") throw new Error("Target group is not active");
+  if (
+    state.enrollments.some(
+      (e) =>
+        e.student_person_id === enr.student_person_id &&
+        e.group_id === input.toGroupId &&
+        e.status === "active",
+    )
+  ) {
+    throw new Error("Student already active in target group");
+  }
+
+  enr.status = "ended";
+  const newId = `enr-${nanoid(8)}`;
+  state.enrollments.push({
+    id: newId,
+    brand_id: target.brand_id,
+    student_person_id: enr.student_person_id,
+    group_id: input.toGroupId,
+    status: "active",
+  });
+
+  for (const pay of state.payments) {
+    if (
+      pay.enrollment_id === enr.id &&
+      ["pending", "partial"].includes(pay.status)
+    ) {
+      pay.enrollment_id = newId;
+    }
+  }
+  for (const pkg of state.packages) {
+    if (pkg.enrollment_id === enr.id && pkg.status === "active") {
+      pkg.enrollment_id = newId;
+    }
+  }
+
+  audit(
+    "enrollment.moved",
+    "enrollment",
+    newId,
+    { from: enr.id, to_group_id: input.toGroupId },
+    input.actor,
+  );
+  return {
+    from_enrollment_id: enr.id,
+    to_enrollment_id: newId,
+    student_person_id: enr.student_person_id,
+    from_group_id: enr.group_id,
+    to_group_id: input.toGroupId,
+  };
 }
 
 export function upsertPaymentAmount(input: {
@@ -651,13 +728,21 @@ export function getStudentCard(personId: string) {
   return {
     person,
     groups,
-    enrollments,
     packages,
     payments,
-    attendance,
-    makeups,
+    attendance: attendance.slice(0, 30),
+    attendance_summary: {
+      total: attendance.length,
+      present: attendance.filter((a) => a.status === "present").length,
+      absent: attendance.filter((a) => a.status === "absent").length,
+      absent_notified: attendance.filter((a) => a.status === "absent_notified").length,
+      cancelled_by_studio: attendance.filter((a) => a.status === "cancelled_by_studio")
+        .length,
+      makeup: attendance.filter((a) => a.attendance_type === "makeup").length,
+    },
     invites,
     parents,
     children,
+    makeups,
   };
 }

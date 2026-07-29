@@ -1,14 +1,28 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import Link from "next/link";
+import { Suspense, useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { format } from "date-fns";
-import { pl } from "date-fns/locale";
+import { ru } from "date-fns/locale";
 import { STUDIO_POLICY } from "@/lib/studio-policy";
+import {
+  ATTENDANCE_STATUS_LABELS,
+  addCalendarDays,
+  attendanceStatusLabel,
+} from "@/lib/attendance-labels";
 
 type Roster = {
   enrollmentId: string;
   studentPersonId: string;
   fullName: string;
+  phone?: string | null;
+  birth_day?: string | null;
+  tshirt_size?: string | null;
+  avatar_url?: string | null;
+  telegram_username?: string | null;
+  telegram_url?: string | null;
+  stats?: { present: number; absent: number; total: number };
   status: string | null;
   explicitWontCome?: boolean;
 };
@@ -26,34 +40,64 @@ type Session = {
   roster: Roster[];
 };
 
-export default function AdminAttendancePage() {
+const MARK_OPTIONS = [
+  "present",
+  "absent",
+  "absent_notified",
+  "cancelled_by_studio",
+] as const;
+
+function todayLocalYmd() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+function initials(name: string) {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (!parts.length) return "?";
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+}
+
+function AttendanceInner() {
+  const search = useSearchParams();
+  const [date, setDate] = useState(
+    () => search.get("date") || todayLocalYmd(),
+  );
   const [sessions, setSessions] = useState<Session[]>([]);
-  const [sessionId, setSessionId] = useState("");
+  const [sessionId, setSessionId] = useState(search.get("session") || "");
   const [marks, setMarks] = useState<Record<string, string>>({});
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
 
-  async function load() {
-    const res = await fetch("/api/v1/attendance/bulk-upsert");
+  async function load(forDate = date, preferSession = sessionId) {
+    const res = await fetch(
+      `/api/v1/attendance/bulk-upsert?date=${encodeURIComponent(forDate)}`,
+    );
     const json = await res.json();
     if (json.ok) {
-      setSessions(json.data);
-      const first = json.data[0];
-      if (first && !sessionId) {
-        setSessionId(first.id);
+      const list = json.data as Session[];
+      setSessions(list);
+      const preferred =
+        list.find((s) => s.id === preferSession) ?? list[0] ?? null;
+      if (preferred) {
+        setSessionId(preferred.id);
         const initial: Record<string, string> = {};
-        for (const r of first.roster) {
+        for (const r of preferred.roster) {
           initial[r.studentPersonId] = r.status ?? "present";
         }
         setMarks(initial);
+      } else {
+        setSessionId("");
+        setMarks({});
       }
     }
   }
 
   useEffect(() => {
-    void load();
+    void load(date, search.get("session") || sessionId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [date]);
 
   useEffect(() => {
     const s = sessions.find((x) => x.id === sessionId);
@@ -66,6 +110,8 @@ export default function AdminAttendancePage() {
   }, [sessionId, sessions]);
 
   const current = sessions.find((s) => s.id === sessionId);
+  const today = todayLocalYmd();
+  const yesterday = addCalendarDays(today, -1);
 
   async function submit() {
     if (!current) return;
@@ -91,7 +137,7 @@ export default function AdminAttendancePage() {
     setBusy(false);
     setMessage(
       json.ok
-        ? `Сохранено. Makeups создано: ${(json.data.createdMakeups ?? []).length}`
+        ? `Сохранено. Отработок создано: ${(json.data.createdMakeups ?? []).length}`
         : json.error,
     );
     await load();
@@ -117,7 +163,7 @@ export default function AdminAttendancePage() {
     setBusy(false);
     setMessage(
       json.ok
-        ? `Закрыто. Makeups: ${(json.data.createdMakeups ?? []).length}`
+        ? `Закрыто. Отработок: ${(json.data.createdMakeups ?? []).length}`
         : json.error,
     );
     await load();
@@ -128,27 +174,51 @@ export default function AdminAttendancePage() {
       <div>
         <h1 className="font-display text-3xl">Посещаемость</h1>
         <p className="text-fog">
-          По умолчанию — пришёл. «Не приду» за {STUDIO_POLICY.absentNotifyCutoffHours}+ ч.
-          Если придёт меньше {STUDIO_POLICY.minAttendeesToHold} — занятие отменяется.
+          Карточка ученика: кто это, стата, Telegram. Отметка — чипами справа.
         </p>
       </div>
 
-      <label className="block max-w-lg text-sm font-semibold">
-        Занятие
-        <select
-          className="input mt-2"
-          value={sessionId}
-          onChange={(e) => setSessionId(e.target.value)}
+      <div className="flex flex-wrap items-end gap-3">
+        <label className="block text-sm font-semibold">
+          Дата
+          <input
+            type="date"
+            className="input mt-2"
+            value={date}
+            onChange={(e) => setDate(e.target.value)}
+          />
+        </label>
+        <button type="button" className="btn btn-ghost text-sm" onClick={() => setDate(today)}>
+          Сегодня
+        </button>
+        <button
+          type="button"
+          className="btn btn-ghost text-sm"
+          onClick={() => setDate(yesterday)}
         >
-          {sessions.map((s) => (
-            <option key={s.id} value={s.id}>
-              {s.group_title} ·{" "}
-              {format(new Date(s.starts_at), "d MMM HH:mm", { locale: pl })}
-              {s.will_hold === false ? " · ОТМЕНА?" : ""}
-            </option>
-          ))}
-        </select>
-      </label>
+          Вчера
+        </button>
+        <label className="block min-w-[16rem] flex-1 text-sm font-semibold">
+          Занятие
+          <select
+            className="input mt-2"
+            value={sessionId}
+            onChange={(e) => setSessionId(e.target.value)}
+            disabled={!sessions.length}
+          >
+            {!sessions.length ? (
+              <option value="">Нет занятий в этот день</option>
+            ) : null}
+            {sessions.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.group_title} ·{" "}
+                {format(new Date(s.starts_at), "d MMM HH:mm", { locale: ru })}
+                {s.will_hold === false ? " · ОТМЕНА?" : ""}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
 
       {current ? (
         <div className="glass flex flex-wrap items-center gap-3 p-4 text-sm">
@@ -158,6 +228,8 @@ export default function AdminAttendancePage() {
           </span>
           {current.status === "cancelled_by_studio" ? (
             <span className="badge badge-danger">Отменено студией</span>
+          ) : current.status === "completed" ? (
+            <span className="badge badge-ok">Закрыто</span>
           ) : current.will_hold === false ? (
             <span className="badge badge-danger">
               Мало людей (&lt;{STUDIO_POLICY.minAttendeesToHold}) — отменится
@@ -169,44 +241,125 @@ export default function AdminAttendancePage() {
       ) : null}
 
       {!current?.roster.length ? (
-        <div className="glass p-6 text-fog">Нет учеников в группе / нет сессий. Сделай Seed дня.</div>
+        <div className="glass p-6 text-fog">
+          Нет занятий или учеников на выбранную дату. Выбери другой день или открой
+          журнал занятий.
+        </div>
       ) : (
         <ul className="space-y-3">
-          {current.roster.map((s) => (
-            <li
-              key={s.studentPersonId}
-              className="glass flex flex-wrap items-center justify-between gap-3 p-4"
-            >
-              <div>
-                <p className="font-semibold">{s.fullName}</p>
-                {s.explicitWontCome ? (
-                  <p className="text-xs text-warn">явно: не приду</p>
-                ) : s.status ? (
-                  <p className="text-xs text-fog">уже отмечен: {s.status}</p>
-                ) : (
-                  <p className="text-xs text-fog">по умолчанию: придёт</p>
-                )}
-              </div>
-              <select
-                className="input max-w-xs"
-                value={marks[s.studentPersonId] ?? "present"}
-                onChange={(e) =>
-                  setMarks((m) => ({ ...m, [s.studentPersonId]: e.target.value }))
-                }
+          {current.roster.map((s) => {
+            const value = marks[s.studentPersonId] ?? "present";
+            const stats = s.stats ?? { present: 0, absent: 0, total: 0 };
+            const rate =
+              stats.total > 0
+                ? Math.round((stats.present / stats.total) * 100)
+                : null;
+            const meta = [
+              s.birth_day ? `ДР ${s.birth_day}` : null,
+              s.phone || null,
+              s.tshirt_size ? `футболка ${s.tshirt_size}` : null,
+            ].filter(Boolean);
+
+            return (
+              <li
+                key={s.studentPersonId}
+                className="glass grid gap-3 px-4 py-3 sm:grid-cols-[1fr_auto] sm:items-center"
               >
-                <option value="present">present</option>
-                <option value="absent">absent</option>
-                <option value="absent_notified">absent_notified</option>
-                <option value="cancelled_by_studio">cancelled_by_studio</option>
-              </select>
-            </li>
-          ))}
+                <div className="flex min-w-0 items-start gap-3">
+                  <Link
+                    href={`/admin/students/${s.studentPersonId}`}
+                    className="relative h-12 w-12 shrink-0 overflow-hidden rounded-full bg-white/10"
+                    title="Карточка ученика"
+                  >
+                    {s.avatar_url ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={s.avatar_url}
+                        alt=""
+                        className="h-full w-full object-cover"
+                      />
+                    ) : (
+                      <span className="flex h-full items-center justify-center text-xs font-semibold text-fog">
+                        {initials(s.fullName)}
+                      </span>
+                    )}
+                  </Link>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+                      <Link
+                        href={`/admin/students/${s.studentPersonId}`}
+                        className="font-semibold underline-offset-2 hover:underline"
+                      >
+                        {s.fullName}
+                      </Link>
+                      {s.telegram_username ? (
+                        <span className="text-xs text-fog">@{s.telegram_username}</span>
+                      ) : null}
+                    </div>
+                    {meta.length ? (
+                      <p className="mt-0.5 truncate text-xs text-fog">{meta.join(" · ")}</p>
+                    ) : (
+                      <p className="mt-0.5 text-xs text-fog">
+                        {s.status
+                          ? `в базе: ${attendanceStatusLabel(s.status)}`
+                          : "ещё не отмечен"}
+                      </p>
+                    )}
+                    <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
+                      <span className="badge">
+                        был {stats.present}/{stats.total || "—"}
+                        {rate != null ? ` · ${rate}%` : ""}
+                      </span>
+                      {stats.absent > 0 ? (
+                        <span className="badge badge-warn">пропуск {stats.absent}</span>
+                      ) : null}
+                      {s.telegram_url ? (
+                        <a
+                          href={s.telegram_url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="btn btn-ghost px-2 py-1 text-xs"
+                        >
+                          Telegram
+                        </a>
+                      ) : (
+                        <span className="text-fog">TG —</span>
+                      )}
+                      <Link
+                        href={`/admin/students/${s.studentPersonId}`}
+                        className="btn btn-ghost px-2 py-1 text-xs"
+                      >
+                        Карточка
+                      </Link>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap gap-1 sm:justify-end">
+                  {MARK_OPTIONS.map((opt) => (
+                    <button
+                      key={opt}
+                      type="button"
+                      className={`btn text-sm ${
+                        value === opt ? "btn-stage" : "btn-ghost"
+                      }`}
+                      onClick={() =>
+                        setMarks((m) => ({ ...m, [s.studentPersonId]: opt }))
+                      }
+                    >
+                      {ATTENDANCE_STATUS_LABELS[opt]}
+                    </button>
+                  ))}
+                </div>
+              </li>
+            );
+          })}
         </ul>
       )}
 
       <div className="flex flex-wrap gap-3">
         <button className="btn btn-primary" onClick={submit} disabled={!current || busy}>
-          Сохранить посещаемость
+          Сохранить
         </button>
         <button className="btn btn-stage" onClick={finalize} disabled={!current || busy}>
           Закрыть занятие
@@ -214,5 +367,13 @@ export default function AdminAttendancePage() {
       </div>
       {message ? <p className="text-sm text-stage-deep">{message}</p> : null}
     </section>
+  );
+}
+
+export default function AdminAttendancePage() {
+  return (
+    <Suspense fallback={<p className="text-fog">Загрузка…</p>}>
+      <AttendanceInner />
+    </Suspense>
   );
 }

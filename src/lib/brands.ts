@@ -37,8 +37,8 @@ export const BRANDS: Record<BrandId, BrandConfig> = {
   },
   kids: {
     id: "kids",
-    name: "Popular Kids",
-    shortName: "Kids",
+    name: "Идея",
+    shortName: "Идея",
     tagline: "Детская студия (без отдельного домена)",
     hosts: [], // no public domain yet
     theme: "kids",

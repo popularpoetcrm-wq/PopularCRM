@@ -7,16 +7,20 @@ export function BrandTabs({ active }: { active: BrandId }) {
   const router = useRouter();
 
   async function select(id: BrandId) {
-    await fetch("/api/v1/admin/brand-tab", {
+    if (id === active) return;
+    const res = await fetch("/api/v1/admin/brand-tab", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ brandId: id }),
     });
+    if (!res.ok) return;
+    // Client admin pages cache fetch results — full reload so lists switch brand.
+    window.location.reload();
     router.refresh();
   }
 
   return (
-    <div className="brand-tabs" role="tablist" aria-label="Brand">
+    <div className="brand-tabs" role="tablist" aria-label="Бренд студии">
       {ADMIN_BRAND_TABS.map((id) => (
         <button
           key={id}
@@ -24,6 +28,7 @@ export function BrandTabs({ active }: { active: BrandId }) {
           role="tab"
           className="brand-tab"
           data-active={active === id}
+          aria-selected={active === id}
           onClick={() => select(id)}
         >
           {BRANDS[id].shortName}

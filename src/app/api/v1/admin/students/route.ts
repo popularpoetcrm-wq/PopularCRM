@@ -6,8 +6,6 @@ import {
   createChildWithParent,
   createStudent,
   getExtendedDemo,
-  getStudentCard,
-  remindAllDebtors,
 } from "@/lib/demo-ops";
 import {
   importStudentsCsv,
@@ -15,7 +13,10 @@ import {
   invitePerson,
   listStudentsWithOnboarding,
 } from "@/lib/demo-onboarding";
+import { hasSupabase } from "@/lib/env";
+import { listStudentsDb } from "@/lib/supabase-data";
 import type { BrandId } from "@/lib/brands";
+import { getAdminClient } from "@/lib/supabase/admin";
 
 function brandTab() {
   return cookies().then(
@@ -27,6 +28,15 @@ export async function GET() {
   const user = await getSessionUser();
   if (!user || !isStaff(user.roles)) return jsonError("Forbidden", 403);
   const tab = await brandTab();
+
+  if (hasSupabase() && user.mode === "supabase") {
+    try {
+      return jsonOk(await listStudentsDb(user.tenantId, tab));
+    } catch (e) {
+      return jsonError(e instanceof Error ? e.message : "fail", 500);
+    }
+  }
+
   const state = getExtendedDemo();
   const students = listStudentsWithOnboarding(tab);
   return jsonOk({
@@ -65,6 +75,127 @@ export async function POST(req: Request) {
   const body = await req.json();
   const brandId = await brandTab();
 
+  if (hasSupabase() && user.mode === "supabase") {
+    const db = getAdminClient();
+    const childParsed = childSchema.safeParse(body);
+    if (childParsed.success) {
+      const d = childParsed.data;
+      let parent = (
+        await db
+          .from("persons")
+          .select("*")
+          .eq("tenant_id", user.tenantId)
+          .eq("email", d.parent_email.toLowerCase())
+          .maybeSingle()
+      ).data;
+      if (!parent) {
+        const created = await db
+          .from("persons")
+          .insert({
+            tenant_id: user.tenantId,
+            full_name: d.parent_full_name,
+            email: d.parent_email.toLowerCase(),
+            phone: d.parent_phone,
+            status: "completed",
+            onboarding_status: "draft",
+          })
+          .select("*")
+          .single();
+        if (created.error) return jsonError(created.error.message, 400);
+        parent = created.data;
+        await db.from("person_roles").insert([
+          { tenant_id: user.tenantId, person_id: parent.id, role: "parent" },
+          { tenant_id: user.tenantId, person_id: parent.id, role: "payer" },
+        ]);
+      }
+
+      const childCreated = await db
+        .from("persons")
+        .insert({
+          tenant_id: user.tenantId,
+          full_name: d.child_full_name,
+          email: `child+${Date.now()}@kids.local`,
+          birth_date: d.child_birth_date || null,
+          is_minor: true,
+          status: "completed",
+          onboarding_status: "complete",
+        })
+        .select("*")
+        .single();
+      if (childCreated.error) return jsonError(childCreated.error.message, 400);
+      const child = childCreated.data;
+      await db.from("person_roles").insert({
+        tenant_id: user.tenantId,
+        person_id: child.id,
+        role: "student",
+      });
+      await db.from("student_contacts").insert({
+        tenant_id: user.tenantId,
+        student_person_id: child.id,
+        contact_person_id: parent.id,
+        relation_type: "parent",
+        is_primary: true,
+        can_pay: true,
+      });
+      let enrollmentId: string | undefined;
+      if (d.group_id) {
+        const enr = await db
+          .from("enrollments")
+          .insert({
+            tenant_id: user.tenantId,
+            student_person_id: child.id,
+            group_id: d.group_id,
+            brand_id: brandId,
+            status: "active",
+          })
+          .select("id")
+          .single();
+        enrollmentId = enr.data?.id;
+      }
+      return jsonOk({ child, parent, enrollmentId });
+    }
+
+    const parsed = createSchema.safeParse(body);
+    if (!parsed.success) return jsonError("Invalid payload");
+    const created = await db
+      .from("persons")
+      .insert({
+        tenant_id: user.tenantId,
+        full_name: parsed.data.full_name,
+        email: parsed.data.email.toLowerCase(),
+        phone: parsed.data.phone,
+        tshirt_size: parsed.data.tshirt_size,
+        birth_date: parsed.data.birth_date || null,
+        status: "completed",
+        onboarding_status: "draft",
+      })
+      .select("*")
+      .single();
+    if (created.error) return jsonError(created.error.message, 400);
+    const person = created.data;
+    await db.from("person_roles").insert({
+      tenant_id: user.tenantId,
+      person_id: person.id,
+      role: "student",
+    });
+    let enrollmentId: string | undefined;
+    if (parsed.data.group_id) {
+      const enr = await db
+        .from("enrollments")
+        .insert({
+          tenant_id: user.tenantId,
+          student_person_id: person.id,
+          group_id: parsed.data.group_id,
+          brand_id: brandId,
+          status: "active",
+        })
+        .select("id")
+        .single();
+      enrollmentId = enr.data?.id;
+    }
+    return jsonOk({ person, enrollmentId });
+  }
+
   const childParsed = childSchema.safeParse(body);
   if (childParsed.success) {
     const result = createChildWithParent({
@@ -96,6 +227,15 @@ export async function POST(req: Request) {
 export async function PATCH(req: Request) {
   const user = await getSessionUser();
   if (!user || !isStaff(user.roles)) return jsonError("Forbidden", 403);
+  if (hasSupabase() && user.mode === "supabase") {
+    if (body?.action === "invite") {
+      const parsed = z.object({ personIds: z.array(z.string()).min(1) }).safeParse(body);
+      if (!parsed.success) return jsonError("Invalid payload");
+      const { inviteManyDb } = await import("@/lib/supabase-onboarding");
+      return jsonOk({ results: await inviteManyDb(parsed.data.personIds, user.personId) });
+    }
+    return jsonError("CSV import в Supabase — следующим шагом", 501);
+  }
   const body = await req.json();
 
   if (body?.action === "invite") {

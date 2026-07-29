@@ -44,9 +44,12 @@ export default function LoginPage() {
       return;
     }
     setStep("code");
-    setMessage(
-      json.data.debugCode ? `Код (dev): ${json.data.debugCode}` : json.data.message,
-    );
+    if (json.data.debugCode) {
+      setCode(String(json.data.debugCode));
+      setMessage(`Код (dev, из БД): ${json.data.debugCode}`);
+    } else {
+      setMessage(json.data.message);
+    }
   }
 
   async function submitCode(e: React.FormEvent) {

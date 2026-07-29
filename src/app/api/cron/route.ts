@@ -108,5 +108,39 @@ export async function GET(req: Request) {
     return jsonOk({ job, synced });
   }
 
+  if (job === "generate_sessions") {
+    const { generateSessionsFromRulesDb } = await import("@/domain/schedule");
+    const { getEnv } = await import("@/lib/env");
+    const tenantId =
+      getEnv().DEFAULT_TENANT_ID || "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
+    const result = await generateSessionsFromRulesDb(tenantId, { weeks: 8 });
+    return jsonOk({ job, ...result });
+  }
+
+  // Hobby plan: one daily cron runs all maintenance jobs
+  if (job === "daily") {
+    const base = new URL(req.url);
+    const auth = req.headers.get("authorization");
+    const jobs = [
+      "expire_makeup_credits",
+      "expire_packages",
+      "dispatch_notifications",
+      "invoice_saldeo_sync",
+      "generate_sessions",
+    ] as const;
+    const results: Record<string, unknown> = {};
+    for (const name of jobs) {
+      const url = new URL(base.toString());
+      url.searchParams.set("job", name);
+      const res = await GET(
+        new Request(url.toString(), {
+          headers: auth ? { authorization: auth } : {},
+        }),
+      );
+      results[name] = await res.json().catch(() => ({ ok: false }));
+    }
+    return jsonOk({ job, results });
+  }
+
   return jsonError(`Unknown job: ${job}`, 400);
 }

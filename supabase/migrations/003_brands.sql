@@ -33,7 +33,7 @@ insert into brands (id, tenant_id, name, hosts, product_line, settings) values
   (
     'kids',
     'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
-    'Popular Kids',
+    'Идея',
     array[]::text[],
     'kids',
     '{"locale":"ru","public_domain":false,"soft_path":"/kids"}'::jsonb

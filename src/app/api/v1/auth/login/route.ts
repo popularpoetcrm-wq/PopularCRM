@@ -2,8 +2,14 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { jsonError, jsonOk } from "@/lib/api";
 import { getDemoState, DEMO_TENANT_ID } from "@/lib/demo-store";
-import { hasSupabase } from "@/lib/env";
+import { getEnv, hasSupabase } from "@/lib/env";
 import { markActivatedOnLogin } from "@/lib/demo-onboarding";
+import {
+  findPersonByEmail,
+  getPersonRoles,
+  issueMagicCode,
+  tenantIdOrDefault,
+} from "@/lib/supabase-data";
 
 const bodySchema = z.object({
   email: z.string().email(),
@@ -50,47 +56,41 @@ export async function POST(req: Request) {
     return res;
   }
 
-  const code = String(Math.floor(100000 + Math.random() * 900000));
-  const { getAdminClient } = await import("@/lib/supabase/admin");
-  const db = getAdminClient();
-  const { getEnv } = await import("@/lib/env");
-  const env = getEnv();
-  const tenantId = env.DEFAULT_TENANT_ID ?? DEMO_TENANT_ID;
+  try {
+    const env = getEnv();
+    const tenantId = tenantIdOrDefault(env.DEFAULT_TENANT_ID);
+    const person = await findPersonByEmail(email, tenantId);
+    if (!person) {
+      return jsonError("Нет аккаунта с этим email. Нужен инвайт от студии.", 404);
+    }
 
-  const { data: person } = await db
-    .from("persons")
-    .select("id")
-    .eq("email", email)
-    .eq("tenant_id", tenantId)
-    .maybeSingle();
+    const code = await issueMagicCode(email, person.tenant_id);
+    const roles = await getPersonRoles(person.id);
 
-  if (!person) {
-    return jsonError("Нет аккаунта с этим email. Нужен инвайт от студии.", 404);
-  }
+    if (env.RESEND_API_KEY) {
+      const { Resend } = await import("resend");
+      const resend = new Resend(env.RESEND_API_KEY);
+      await resend.emails.send({
+        from: env.EMAIL_FROM!,
+        to: email,
+        subject: "Kod logowania — Studio CRM",
+        text: `Twój kod: ${code}`,
+      });
+    }
 
-  await db.from("magic_login_codes").insert({
-    tenant_id: tenantId,
-    email,
-    code,
-    expires_at: new Date(Date.now() + 15 * 60 * 1000).toISOString(),
-  });
-
-  if (env.RESEND_API_KEY) {
-    const { Resend } = await import("resend");
-    const resend = new Resend(env.RESEND_API_KEY);
-    await resend.emails.send({
-      from: env.EMAIL_FROM!,
-      to: email,
-      subject: "Kod logowania — Studio CRM",
-      text: `Twój kod: ${code}`,
+    return jsonOk({
+      mode: "magic",
+      message: env.RESEND_API_KEY
+        ? "Kod wysłany na email."
+        : "Kod zapisany в БД (Resend нет — смотри debugCode).",
+      personId: person.id,
+      roles,
+      onboarding_status: person.onboarding_status ?? "complete",
+      debugCode: env.RESEND_API_KEY ? undefined : code,
     });
+  } catch (e) {
+    return jsonError(e instanceof Error ? e.message : "login fail", 500);
   }
-
-  return jsonOk({
-    mode: "magic",
-    message: "Kod wysłany na email (jeśli Resend skonfigurowany).",
-    debugCode: env.RESEND_API_KEY ? undefined : code,
-  });
 }
 
 export async function DELETE() {

@@ -7,10 +7,11 @@ import { BRANDS, type BrandId } from "@/lib/brands";
 
 const allLinks = [
   { href: "/admin", label: "Пульт", roles: "staff" as const },
+  { href: "/admin/insights", label: "Сводка", roles: "admin" as const },
   { href: "/admin/groups", label: "Группы", roles: "staff" as const },
   { href: "/admin/students", label: "Ученики", roles: "staff" as const },
-  { href: "/admin/sessions", label: "Занятия", roles: "staff" as const },
-  { href: "/admin/attendance", label: "Посещаемость", roles: "staff" as const },
+  { href: "/admin/sessions", label: "Журнал", roles: "staff" as const },
+  { href: "/admin/attendance", label: "Отметить", roles: "staff" as const },
   { href: "/admin/payments", label: "Оплаты", roles: "admin" as const },
   { href: "/admin/offers", label: "Пробные/ивенты", roles: "admin" as const },
   { href: "/admin/invoices", label: "Фактуры", roles: "admin" as const },
@@ -42,7 +43,8 @@ export default async function AdminLayout({
           <div className="px-3">
             <p className="font-display text-xl">Popular Admin</p>
             <p className="text-xs text-fog">
-              {user.fullName} · {teacher ? "педагог" : "админ"} · {brand.shortName}
+              {user.fullName} · {teacher ? "педагог" : "админ"} · сейчас:{" "}
+              <strong>{brand.name}</strong>
             </p>
           </div>
           {!teacher ? <BrandTabs active={tab} /> : null}
