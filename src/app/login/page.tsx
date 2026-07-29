@@ -77,8 +77,11 @@ export default function LoginPage() {
       <div className="glass glass-strong fade-up p-8">
         <h1 className="font-display text-3xl">Вход</h1>
         <p className="mt-2 text-sm text-fog">
-          Уже учишься у нас? Введи свой email — код придёт на почту (отдельный
-          инвайт не нужен). Или открой /login в Telegram-боте, если он привязан.
+          Уже в студии, но без входа?{" "}
+          <Link href="/join" className="underline">
+            Оставь email на /join
+          </Link>
+          . Если email уже в CRM — код придёт сюда. Telegram: /login в боте.
         </p>
 
         {step === "email" ? (

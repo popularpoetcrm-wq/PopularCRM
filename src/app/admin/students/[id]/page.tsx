@@ -76,6 +76,8 @@ export default function StudentCardPage() {
   const [card, setCard] = useState<Card | null>(null);
   const [msg, setMsg] = useState("");
   const [email, setEmail] = useState("");
+  const [phone, setPhone] = useState("");
+  const [telegram, setTelegram] = useState("");
 
   async function load() {
     const res = await fetch(`/api/v1/admin/students/${id}`);
@@ -83,6 +85,8 @@ export default function StudentCardPage() {
     if (json.ok) {
       setCard(json.data);
       setEmail(json.data.person.email ?? "");
+      setPhone(json.data.person.phone ?? "");
+      setTelegram(json.data.person.telegram_username ?? "");
     } else setMsg(json.error);
   }
 
@@ -108,14 +112,18 @@ export default function StudentCardPage() {
     await load();
   }
 
-  async function saveEmail() {
+  async function saveContacts() {
     const res = await fetch(`/api/v1/admin/students/${id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email }),
+      body: JSON.stringify({
+        email: email || undefined,
+        phone: phone || null,
+        telegram_username: telegram || null,
+      }),
     });
     const json = await res.json();
-    setMsg(json.ok ? "Email сохранён" : json.error);
+    setMsg(json.ok ? "Контакты сохранены" : json.error);
     await load();
   }
 
@@ -173,17 +181,32 @@ export default function StudentCardPage() {
           </dl>
         </div>
         <div className="space-y-2">
-          <p className="text-xs uppercase tracking-wide text-fog">Email для инвайта</p>
+          <p className="text-xs uppercase tracking-wide text-fog">Контакты</p>
+          <input
+            className="input w-full"
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="email@…"
+          />
+          <input
+            className="input w-full"
+            value={phone}
+            onChange={(e) => setPhone(e.target.value)}
+            placeholder="телефон"
+          />
+          <input
+            className="input w-full"
+            value={telegram}
+            onChange={(e) => setTelegram(e.target.value.replace(/^@/, ""))}
+            placeholder="telegram username"
+          />
           <div className="flex flex-wrap gap-2">
-            <input
-              className="input flex-1"
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="email@…"
-            />
-            <button type="button" className="btn btn-ghost text-sm" onClick={saveEmail}>
-              Save
+            <button type="button" className="btn btn-ghost text-sm" onClick={saveContacts}>
+              Сохранить
+            </button>
+            <button type="button" className="btn btn-primary text-sm" onClick={invite}>
+              Инвайт
             </button>
           </div>
         </div>

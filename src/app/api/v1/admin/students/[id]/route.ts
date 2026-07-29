@@ -32,6 +32,7 @@ const patchBody = z.object({
   action: z.literal("set-email").optional(),
   email: z.string().email().optional(),
   phone: z.string().optional().nullable(),
+  telegram_username: z.string().optional().nullable(),
 });
 
 export async function POST(req: Request, ctx: Ctx) {
@@ -70,18 +71,22 @@ export async function PATCH(req: Request, ctx: Ctx) {
     return jsonError("Supabase required", 400);
   }
 
-  const db = getAdminClient();
   const payload: Record<string, unknown> = {};
   if (parsed.data.email) payload.email = parsed.data.email.toLowerCase();
   if (parsed.data.phone !== undefined) payload.phone = parsed.data.phone;
+  if (parsed.data.telegram_username !== undefined) {
+    const tg = parsed.data.telegram_username?.trim().replace(/^@+/, "") || null;
+    payload.telegram_username = tg;
+  }
   if (!Object.keys(payload).length) return jsonError("Nothing to update");
 
+  const db = getAdminClient();
   const { data, error } = await db
     .from("persons")
     .update(payload)
     .eq("id", id)
     .eq("tenant_id", user.tenantId)
-    .select("id, full_name, email, phone, onboarding_status")
+    .select("id, full_name, email, phone, telegram_username, onboarding_status")
     .single();
   if (error) return jsonError(error.message, 400);
   return jsonOk(data);

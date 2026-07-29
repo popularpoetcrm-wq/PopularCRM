@@ -46,6 +46,9 @@ export default async function HomePage() {
             <Link href="/login" className="btn btn-stage">
               Войти
             </Link>
+            <Link href="/join" className="btn btn-primary">
+              Это я — оставить контакты
+            </Link>
             <Link href="/admin" className="btn btn-ghost">
               Админка
             </Link>

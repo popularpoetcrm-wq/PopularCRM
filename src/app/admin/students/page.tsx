@@ -46,16 +46,26 @@ export default function AdminStudentsPage() {
     invite: true,
   });
 
+  const [missing, setMissing] = useState<
+    Array<{ id: string; full_name: string; groups: string[]; phone?: string | null }>
+  >([]);
+  const [missingTotal, setMissingTotal] = useState(0);
+
   async function load() {
-    const [s, g] = await Promise.all([
+    const [s, g, m] = await Promise.all([
       fetch("/api/v1/admin/students").then((r) => r.json()),
       fetch("/api/v1/admin/groups").then((r) => r.json()),
+      fetch("/api/v1/admin/students/missing-contacts").then((r) => r.json()),
     ]);
     if (s.ok) {
       setStudents(s.data.students ?? []);
       setEnrollments(s.data.enrollments ?? []);
     }
     if (g.ok) setGroups(Array.isArray(g.data) ? g.data : []);
+    if (m.ok) {
+      setMissing(m.data.missing ?? []);
+      setMissingTotal(m.data.total ?? 0);
+    }
   }
 
   useEffect(() => {
@@ -267,8 +277,40 @@ export default function AdminStudentsPage() {
           <button type="button" className="btn btn-ghost" onClick={inviteSelected}>
             Инвайт выбранным
           </button>
+          <a
+            className="btn btn-stage"
+            href="/join"
+            target="_blank"
+            rel="noreferrer"
+          >
+            Ссылка «Это я» (/join)
+          </a>
         </div>
+        <p className="mt-2 text-xs text-fog">
+          Нет email/TG у учеников? Кинь им ссылку /join — сами найдут себя в группе и
+          оставят контакты. Без контакта: {missing.length} из {missingTotal}.
+        </p>
       </div>
+
+      {missing.length ? (
+        <section className="glass space-y-3 p-5">
+          <h2 className="font-display text-2xl">Без email ({missing.length})</h2>
+          <p className="text-sm text-fog">
+            Ссылка на группу:{" "}
+            <code className="text-xs">/join?group=ID</code> — копируй ID из групп ниже.
+          </p>
+          <ul className="max-h-48 divide-y divide-white/10 overflow-auto text-sm">
+            {missing.slice(0, 40).map((p) => (
+              <li key={p.id} className="flex flex-wrap justify-between gap-2 py-2">
+                <Link href={`/admin/students/${p.id}`} className="font-semibold underline">
+                  {p.full_name}
+                </Link>
+                <span className="text-fog">{p.groups.slice(0, 2).join(", ")}</span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
 
       <div className="flex flex-wrap gap-2">
         <button
@@ -440,7 +482,24 @@ export default function AdminStudentsPage() {
             <article key={group.id} className="glass overflow-hidden">
               <div className="flex flex-wrap items-center justify-between gap-2 border-b border-white/10 px-5 py-3">
                 <h2 className="font-display text-xl">{group.title}</h2>
-                <span className="badge">{rows.length} чел.</span>
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="badge">{rows.length} чел.</span>
+                  <a
+                    className="btn btn-ghost text-xs"
+                    href={`/join?group=${group.id}`}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    /join
+                  </a>
+                  <button
+                    type="button"
+                    className="btn btn-ghost text-xs"
+                    onClick={() => inviteGroup(group.id)}
+                  >
+                    Инвайт
+                  </button>
+                </div>
               </div>
               {rows.length ? (
                 <ul className="divide-y divide-white/10">{rows.map(renderStudentRow)}</ul>
