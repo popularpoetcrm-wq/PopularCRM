@@ -1,0 +1,20 @@
+{
+  "crons": [
+    {
+      "path": "/api/cron?job=dispatch_notifications",
+      "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/cron?job=expire_makeup_credits",
+      "schedule": "10 2 * * *"
+    },
+    {
+      "path": "/api/cron?job=expire_packages",
+      "schedule": "0 2 * * *"
+    },
+    {
+      "path": "/api/cron?job=invoice_saldeo_sync",
+      "schedule": "*/15 * * * *"
+    }
+  ]
+}
