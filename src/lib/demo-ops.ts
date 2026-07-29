@@ -738,7 +738,9 @@ export function getStudentCard(personId: string) {
       absent_notified: attendance.filter((a) => a.status === "absent_notified").length,
       cancelled_by_studio: attendance.filter((a) => a.status === "cancelled_by_studio")
         .length,
-      makeup: attendance.filter((a) => a.attendance_type === "makeup").length,
+      makeup: attendance.filter(
+        (a) => (a as { attendance_type?: string }).attendance_type === "makeup",
+      ).length,
     },
     invites,
     parents,

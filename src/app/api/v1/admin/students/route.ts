@@ -227,6 +227,8 @@ export async function POST(req: Request) {
 export async function PATCH(req: Request) {
   const user = await getSessionUser();
   if (!user || !isStaff(user.roles)) return jsonError("Forbidden", 403);
+  const body = await req.json();
+
   if (hasSupabase() && user.mode === "supabase") {
     if (body?.action === "invite") {
       const parsed = z.object({ personIds: z.array(z.string()).min(1) }).safeParse(body);
@@ -236,7 +238,6 @@ export async function PATCH(req: Request) {
     }
     return jsonError("CSV import в Supabase — следующим шагом", 501);
   }
-  const body = await req.json();
 
   if (body?.action === "invite") {
     const parsed = z.object({ personIds: z.array(z.string()).min(1) }).safeParse(body);
