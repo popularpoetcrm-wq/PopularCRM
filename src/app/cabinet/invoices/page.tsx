@@ -78,7 +78,9 @@ export default function InvoicesPage() {
       <div>
         <h1 className="font-display text-3xl">Фактуры</h1>
         <p className="text-fog">
-          Выбери начисление — фактура будет создана в Saldeo.
+          Фактуру можно запросить по оплаченному или открытому начислению. Пока
+          Saldeo без API-токена документ останется в очереди / с ошибкой — без
+          фейкового «готово».
         </p>
       </div>
 

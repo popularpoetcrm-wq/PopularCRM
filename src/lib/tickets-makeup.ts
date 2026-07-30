@@ -1,0 +1,105 @@
+import { getEnv } from "@/lib/env";
+
+function ticketsBaseUrl() {
+  const env = getEnv();
+  return (
+    env.TICKETS_PUBLIC_URL ||
+    env.NEXT_PUBLIC_TICKETS_URL ||
+    "https://www.populartickets.pl"
+  ).replace(/\/$/, "");
+}
+
+function crmSecret() {
+  const secret = getEnv().CRM_CHECKOUT_SECRET?.trim();
+  if (!secret) throw new Error("CRM_CHECKOUT_SECRET не задан");
+  return secret;
+}
+
+export type TicketsTrial = {
+  id: string;
+  slug: string;
+  title: string;
+  starts_at: string;
+  venue: string;
+  total_tickets: number;
+  remaining: number;
+  price_grosze: number;
+};
+
+export async function fetchTicketsTrials(): Promise<TicketsTrial[]> {
+  const res = await fetch(`${ticketsBaseUrl()}/api/crm/trials`, {
+    headers: { Authorization: `Bearer ${crmSecret()}` },
+    cache: "no-store",
+  });
+  const json = (await res.json().catch(() => ({}))) as {
+    ok?: boolean;
+    trials?: TicketsTrial[];
+    error?: string;
+  };
+  if (!res.ok || !json.ok) {
+    throw new Error(json.error || `Tickets trials HTTP ${res.status}`);
+  }
+  return json.trials ?? [];
+}
+
+export async function reserveTicketsMakeupTrial(input: {
+  crmMakeupCreditId: string;
+  eventId: string;
+  buyerEmail: string;
+  buyerName?: string;
+}) {
+  const res = await fetch(`${ticketsBaseUrl()}/api/crm/makeup-trial`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${crmSecret()}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      crm_makeup_credit_id: input.crmMakeupCreditId,
+      event_id: input.eventId,
+      buyer_email: input.buyerEmail,
+      buyer_name: input.buyerName,
+    }),
+  });
+  const json = (await res.json().catch(() => ({}))) as {
+    ok?: boolean;
+    error?: string;
+    ticket_id?: string;
+    order_id?: string;
+    event_id?: string;
+    starts_at?: string;
+    title?: string;
+    slug?: string;
+    remaining?: number;
+    already?: boolean;
+  };
+  if (!res.ok || !json.ok) {
+    throw new Error(json.error || `Tickets makeup-trial HTTP ${res.status}`);
+  }
+  return json;
+}
+
+export async function cancelTicketsMakeupTrial(input: {
+  crmMakeupCreditId: string;
+  ticketId?: string;
+}) {
+  const res = await fetch(`${ticketsBaseUrl()}/api/crm/makeup-trial/cancel`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${crmSecret()}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      crm_makeup_credit_id: input.crmMakeupCreditId,
+      ticket_id: input.ticketId,
+    }),
+  });
+  const json = (await res.json().catch(() => ({}))) as {
+    ok?: boolean;
+    error?: string;
+  };
+  if (!res.ok || !json.ok) {
+    throw new Error(json.error || `Tickets makeup cancel HTTP ${res.status}`);
+  }
+  return json;
+}

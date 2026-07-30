@@ -198,7 +198,9 @@ export async function getCabinetDashboardDb(personId: string, tenantId: string) 
         .limit(40),
       db
         .from("makeup_credits")
-        .select("id, student_person_id, status, valid_until")
+        .select(
+          "id, student_person_id, status, valid_until, makeup_bookings(target_kind, target_session_id, tickets_event_id, status, booked_at)",
+        )
         .in("student_person_id", scopeIds)
         .eq("tenant_id", tenantId),
       groupIds.length
@@ -404,11 +406,38 @@ export async function getCabinetDashboardDb(personId: string, tenantId: string) 
     };
   }
 
+  const makeupsNormalized = (makeups ?? []).map((m) => {
+    const bookings = Array.isArray(
+      (m as { makeup_bookings?: unknown }).makeup_bookings,
+    )
+      ? (
+          m as {
+            makeup_bookings: Array<{
+              status: string;
+              target_kind?: string;
+              target_session_id?: string;
+              tickets_event_id?: string;
+            }>;
+          }
+        ).makeup_bookings
+      : [];
+    const active = bookings.find((b) => b.status === "booked");
+    return {
+      id: m.id,
+      student_person_id: m.student_person_id,
+      status: m.status,
+      valid_until: m.valid_until,
+      target_kind: active?.target_kind ?? null,
+      target_session_id: active?.target_session_id ?? null,
+      tickets_event_id: active?.tickets_event_id ?? null,
+    };
+  });
+
   return {
     children,
     schedule: scheduleUnique,
     packages: mappedPackages,
-    makeups: makeups ?? [],
+    makeups: makeupsNormalized,
     payments: paymentsFinal,
     invoices: invoices ?? [],
     groups: enrichedGroups,

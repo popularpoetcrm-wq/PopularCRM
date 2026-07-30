@@ -81,7 +81,8 @@ export default function PaymentsPage() {
         <div>
           <h1 className="font-display text-3xl">Оплаты</h1>
           <p className="text-fog">
-            Начисления за абонементы, открытая сумма и история оплат.
+            Оплати абонемент через PopularTickets / P24. После оплаты пакет
+            активируется — дальше можно запросить фактуру.
           </p>
         </div>
       </div>

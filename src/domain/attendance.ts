@@ -121,7 +121,11 @@ async function maybeCreateMakeup(
     recipientPersonId: await notificationRecipient(db, params.studentPersonId),
     channel: "telegram",
     templateCode: "makeup.created",
-    payload: { makeupCreditId: data.id, validUntil: validUntil.toISOString() },
+    payload: {
+      makeupCreditId: data.id,
+      validUntil: validUntil.toISOString(),
+      cabinetUrl: `${(process.env.NEXT_PUBLIC_APP_URL || "https://popularcrm.vercel.app").replace(/\/$/, "")}/cabinet/makeups`,
+    },
   });
 
   return data;

@@ -113,9 +113,11 @@ export function renderTemplate(
     case "credits.low_balance":
       return `В пакете осталось только ${payload.remaining ?? 1} занятие.`;
     case "makeup.created":
-      return `Создана отработка. Действует до: ${payload.validUntil ?? "—"}. Забронируй в кабинете.`;
+      return `Создана отработка. Действует до: ${payload.validUntil ?? "—"}.\nЗабронируй группу или пробное: ${payload.cabinetUrl ?? "https://popularcrm.vercel.app/cabinet/makeups"}`;
     case "makeup.expiring":
-      return `Отработка скоро сгорит (${payload.validUntil ?? "—"}).`;
+      return `Отработка скоро сгорит (${payload.validUntil ?? "—"}).\n${payload.cabinetUrl ?? "https://popularcrm.vercel.app/cabinet/makeups"}`;
+    case "attendance.remind_cutoff":
+      return `Скоро занятие${payload.title ? ` «${payload.title}»` : ""}${payload.startsAt ? ` (${payload.startsAt})` : ""}. Если не придёшь — отметь в ЛК минимум за ${payload.cutoffHours ?? 6} ч:\n${payload.cabinetUrl ?? "https://popularcrm.vercel.app/cabinet/schedule"}`;
     case "invoice.ready":
       return `Счёт готов${payload.invoiceNumber ? `: ${payload.invoiceNumber}` : ""}.${payload.pdfUrl ? `\n${payload.pdfUrl}` : ""}`;
     case "schedule.changed":

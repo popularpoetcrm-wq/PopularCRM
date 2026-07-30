@@ -99,7 +99,7 @@ const plan: PackagePlanSnapshot = {
   price_gross: 400,
   currency: "PLN",
   start_policy: "on_payment",
-  makeup_policy: "ALWAYS_CREATE_ON_ABSENCE",
+  makeup_policy: "ONLY_IF_NOTIFIED",
   makeup_validity_days: 30,
   booking_cutoff_minutes: 360,
 };

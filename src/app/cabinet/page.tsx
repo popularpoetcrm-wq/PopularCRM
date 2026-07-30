@@ -103,8 +103,8 @@ export default function CabinetHome() {
         </h1>
         <p className="mt-2 text-fog">
           {(data.children?.length ?? 0) > 0
-            ? "Кабинет родителя: расписание и оплаты детей."
-            : `Мы считаем, что ты придёшь. Если планы изменились, сообщи минимум за ${STUDIO_POLICY.absentNotifyCutoffHours} ч.`}
+            ? "Кабинет родителя: расписание → не придёт → отработка → оплата → фактура."
+            : `Цикл: занятия → «не приду» (≥${STUDIO_POLICY.absentNotifyCutoffHours} ч) → отработка → оплата абонемента → фактура.`}
         </p>
       </section>
 

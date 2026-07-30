@@ -64,8 +64,8 @@ export default function SchedulePage() {
         <h1 className="font-display text-3xl">Мои занятия</h1>
         <p className="mt-2 text-fog">
           {children.length
-            ? "Родительский кабинет: отметь «не придёт» за ребёнка."
-            : `Мы считаем, что ты придёшь. Если планы изменились, сообщи минимум за ${STUDIO_POLICY.absentNotifyCutoffHours} ч.`}
+            ? "Родительский кабинет: отметь «не придёт» за ребёнка минимум за 6 ч — появится отработка."
+            : `По умолчанию считаем, что ты придёшь. «Не приду» ≥${STUDIO_POLICY.absentNotifyCutoffHours} ч → отработка. Позже или без предупреждения занятие спишется как посещение.`}
         </p>
       </div>
 

@@ -4,7 +4,7 @@ values (
   'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
   'Teatr Studio Demo',
   jsonb_build_object(
-    'makeup_policy', 'ALWAYS_CREATE_ON_ABSENCE',
+    'makeup_policy', 'ONLY_IF_NOTIFIED',
     'makeup_validity_days', 30,
     'booking_cutoff_minutes', 120,
     'payment_reminder_channels', jsonb_build_array('telegram_dm')
@@ -21,7 +21,7 @@ insert into package_plans (
   60,
   400.00,
   'on_payment',
-  'ALWAYS_CREATE_ON_ABSENCE'
+  'ONLY_IF_NOTIFIED'
 );
 
 insert into persons (id, tenant_id, full_name, email, phone, status)

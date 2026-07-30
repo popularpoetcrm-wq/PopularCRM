@@ -18,7 +18,7 @@ export async function POST(
         cancelMakeupDemo({
           makeupId: id,
           actorPersonId: user.personId,
-          forceBurn: Boolean(body?.forceBurn),
+          forceBurn: Boolean((body as { forceBurn?: boolean })?.forceBurn),
         }),
       );
     } catch (e) {
@@ -26,12 +26,17 @@ export async function POST(
     }
   }
 
-  const { cancelMakeupBooking } = await import("@/domain/makeup");
-  const { getAdminClient } = await import("@/lib/supabase/admin");
-  const result = await cancelMakeupBooking(getAdminClient(), {
-    tenantId: user.tenantId,
-    makeupCreditId: id,
-    cancelledBy: user.personId,
-  });
-  return jsonOk(result);
+  try {
+    const { cancelMakeupBooking } = await import("@/domain/makeup");
+    const { getAdminClient } = await import("@/lib/supabase/admin");
+    const result = await cancelMakeupBooking(getAdminClient(), {
+      tenantId: user.tenantId,
+      makeupCreditId: id,
+      cancelledBy: user.personId,
+      forceBurn: Boolean((body as { forceBurn?: boolean })?.forceBurn),
+    });
+    return jsonOk(result);
+  } catch (e) {
+    return jsonError(e instanceof Error ? e.message : "fail", 400);
+  }
 }

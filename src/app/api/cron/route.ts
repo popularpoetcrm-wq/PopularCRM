@@ -166,6 +166,77 @@ export async function GET(req: Request) {
     return jsonOk({ job, queued });
   }
 
+  if (job === "queue_attendance_reminders") {
+    const { enqueueBestNotification } = await import("@/domain/notifications");
+    const { STUDIO_POLICY } = await import("@/lib/studio-policy");
+    const appUrl = (
+      getEnv().NEXT_PUBLIC_APP_URL || "https://popularcrm.vercel.app"
+    ).replace(/\/$/, "");
+    // Window: between cutoff+1h and cutoff (e.g. 7h..6h before start)
+    const cutoffMs = STUDIO_POLICY.absentNotifyCutoffHours * 60 * 60 * 1000;
+    const from = new Date(Date.now() + cutoffMs).toISOString();
+    const to = new Date(Date.now() + cutoffMs + 60 * 60 * 1000).toISOString();
+    const { data: sessions } = await db
+      .from("sessions")
+      .select("id, starts_at, group_id, groups(title)")
+      .eq("status", "scheduled")
+      .gte("starts_at", from)
+      .lt("starts_at", to)
+      .limit(40);
+
+    let queued = 0;
+    for (const session of sessions ?? []) {
+      const { data: enrollments } = await db
+        .from("enrollments")
+        .select("student_person_id")
+        .eq("group_id", session.group_id)
+        .eq("status", "active");
+      for (const enr of enrollments ?? []) {
+        const { data: att } = await db
+          .from("attendance")
+          .select("status")
+          .eq("session_id", session.id)
+          .eq("student_person_id", enr.student_person_id)
+          .maybeSingle();
+        if (att?.status === "absent_notified" || att?.status === "absent") {
+          continue;
+        }
+        const { data: recent } = await db
+          .from("notifications")
+          .select("id")
+          .eq("template_code", "attendance.remind_cutoff")
+          .eq("recipient_person_id", enr.student_person_id)
+          .contains("payload", { sessionId: session.id })
+          .limit(1)
+          .maybeSingle();
+        if (recent) continue;
+        const group = Array.isArray(session.groups)
+          ? session.groups[0]
+          : session.groups;
+        try {
+          await enqueueBestNotification(db, {
+            tenantId:
+              getEnv().DEFAULT_TENANT_ID ||
+              "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+            recipientPersonId: enr.student_person_id,
+            templateCode: "attendance.remind_cutoff",
+            payload: {
+              sessionId: session.id,
+              title: group?.title ?? "занятие",
+              startsAt: session.starts_at,
+              cutoffHours: STUDIO_POLICY.absentNotifyCutoffHours,
+              cabinetUrl: `${appUrl}/cabinet/schedule`,
+            },
+          });
+          queued += 1;
+        } catch (e) {
+          console.error("[cron] attendance reminder skipped", session.id, e);
+        }
+      }
+    }
+    return jsonOk({ job, queued, sessions: sessions?.length ?? 0 });
+  }
+
   if (job === "invoice_saldeo_sync") {
     const { data: pending } = await db
       .from("invoices")
@@ -198,6 +269,7 @@ export async function GET(req: Request) {
       "expire_makeup_credits",
       "expire_packages",
       "queue_payment_reminders",
+      "queue_attendance_reminders",
       "dispatch_notifications",
       "invoice_saldeo_sync",
       "generate_sessions",

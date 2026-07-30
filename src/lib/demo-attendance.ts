@@ -237,8 +237,9 @@ export function markAttendanceDemo(input: {
       }
     }
 
+    // Отработка только при предупреждении (absent_notified), не при silent absent.
     if (
-      isWontCome(item.status) &&
+      item.status === "absent_notified" &&
       (item.attendanceType ?? "regular") === "regular"
     ) {
       const makeupId = `makeup-${nanoid(6)}`;
@@ -255,7 +256,7 @@ export function markAttendanceDemo(input: {
       notify(
         item.studentPersonId,
         "makeup.created",
-        `Создана отработка (до ${addDays(new Date(), STUDIO_POLICY.makeupValidityDays).toLocaleDateString()}).`,
+        `Создана отработка (до ${addDays(new Date(), STUDIO_POLICY.makeupValidityDays).toLocaleDateString()}). Забронируй в кабинете.`,
         "telegram",
       );
     }

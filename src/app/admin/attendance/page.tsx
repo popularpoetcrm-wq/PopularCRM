@@ -40,12 +40,8 @@ type Session = {
   roster: Roster[];
 };
 
-const MARK_OPTIONS = [
-  "present",
-  "absent",
-  "absent_notified",
-  "cancelled_by_studio",
-] as const;
+/** Админ отмечает факт: пришёл / не пришёл. «Предупредил» — только из ЛК клиента. */
+const MARK_OPTIONS = ["present", "absent", "cancelled_by_studio"] as const;
 
 function initials(name: string) {
   const parts = name.trim().split(/\s+/).filter(Boolean);
@@ -112,16 +108,24 @@ function AttendanceInner() {
     if (!current) return;
     setBusy(true);
     setMessage("");
-    const items = current.roster.map((s) => ({
-      enrollmentId: s.enrollmentId,
-      studentPersonId: s.studentPersonId,
-      attendanceType: "regular" as const,
-      status: (marks[s.studentPersonId] ?? "present") as
-        | "present"
-        | "absent"
-        | "absent_notified"
-        | "cancelled_by_studio",
-    }));
+    const items = current.roster.map((s) => {
+      const chosen = marks[s.studentPersonId] ?? "present";
+      // Не затираем клиентское «предупредил» кнопкой «не пришёл».
+      const preserved =
+        chosen === "absent" && s.status === "absent_notified"
+          ? "absent_notified"
+          : chosen;
+      return {
+        enrollmentId: s.enrollmentId,
+        studentPersonId: s.studentPersonId,
+        attendanceType: "regular" as const,
+        status: preserved as
+          | "present"
+          | "absent"
+          | "absent_notified"
+          | "cancelled_by_studio",
+      };
+    });
 
     const res = await fetch("/api/v1/attendance/bulk-upsert", {
       method: "POST",
@@ -169,7 +173,8 @@ function AttendanceInner() {
       <div>
         <h1 className="font-display text-3xl">Посещаемость</h1>
         <p className="text-fog">
-          Проверь состав, отметь присутствие и закрой проведённое занятие.
+          Отметь «пришёл / не пришёл» и закрой занятие. «Предупредил» ставит
+          клиент в ЛК (≥6 ч) — это не перезаписываем вручную.
         </p>
       </div>
 
@@ -330,21 +335,35 @@ function AttendanceInner() {
                   </div>
                 </div>
 
-                <div className="flex flex-wrap gap-1 sm:justify-end">
-                  {MARK_OPTIONS.map((opt) => (
-                    <button
-                      key={opt}
-                      type="button"
-                      className={`btn text-sm ${
-                        value === opt ? "btn-stage" : "btn-ghost"
-                      }`}
-                      onClick={() =>
-                        setMarks((m) => ({ ...m, [s.studentPersonId]: opt }))
-                      }
-                    >
-                      {ATTENDANCE_STATUS_LABELS[opt]}
-                    </button>
-                  ))}
+                <div className="flex flex-wrap items-center gap-1 sm:justify-end">
+                  {s.status === "absent_notified" ? (
+                    <span className="badge badge-warn mr-1">предупредил</span>
+                  ) : null}
+                  {MARK_OPTIONS.map((opt) => {
+                    const active =
+                      value === opt ||
+                      (opt === "absent" && value === "absent_notified");
+                    return (
+                      <button
+                        key={opt}
+                        type="button"
+                        className={`btn text-sm ${
+                          active ? "btn-stage" : "btn-ghost"
+                        }`}
+                        onClick={() =>
+                          setMarks((m) => ({
+                            ...m,
+                            [s.studentPersonId]:
+                              opt === "absent" && s.status === "absent_notified"
+                                ? "absent_notified"
+                                : opt,
+                          }))
+                        }
+                      >
+                        {ATTENDANCE_STATUS_LABELS[opt]}
+                      </button>
+                    );
+                  })}
                 </div>
               </li>
             );
