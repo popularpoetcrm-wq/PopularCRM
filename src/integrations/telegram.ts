@@ -23,57 +23,58 @@ export type TelegramReplyMarkup =
 
 /** Labels for the persistent bottom menu (exact match). */
 export const BOT_MENU = {
-  home: "🏠 Главная",
+  home: "🏠 Сводка",
   schedule: "📅 Занятия",
-  balance: "💳 Баланс",
-  groups: "🎭 Группы",
+  makeups: "🔄 Отработки",
+  pay: "💳 Оплатить",
   cabinet: "🔑 Кабинет",
-  help: "ℹ️ Помощь",
 } as const;
 
 export function mainReplyKeyboard(): ReplyKeyboard {
   return {
     keyboard: [
       [{ text: BOT_MENU.home }, { text: BOT_MENU.schedule }],
-      [{ text: BOT_MENU.balance }, { text: BOT_MENU.groups }],
+      [{ text: BOT_MENU.makeups }, { text: BOT_MENU.pay }],
       [{ text: BOT_MENU.cabinet }],
     ],
     resize_keyboard: true,
     is_persistent: true,
-    input_field_placeholder: "Выбери пункт меню…",
+    input_field_placeholder: "Меню внизу…",
   };
 }
 
-/** Single deep-link — no duplicate «login page» / «cabinet» clutter. */
-export function openCabinetKeyboard(magicUrl: string): InlineKeyboard {
+/** Single deep-link into a cabinet section. */
+export function openLinkKeyboard(label: string, url: string): InlineKeyboard {
   return {
-    inline_keyboard: [[{ text: "Открыть кабинет →", url: magicUrl }]],
+    inline_keyboard: [[{ text: label, url }]],
   };
+}
+
+/** @deprecated Prefer openLinkKeyboard */
+export function openCabinetKeyboard(magicUrl: string): InlineKeyboard {
+  return openLinkKeyboard("Открыть кабинет →", magicUrl);
 }
 
 export function openLoginKeyboard(loginUrl: string): InlineKeyboard {
-  return {
-    inline_keyboard: [[{ text: "Войти на сайте →", url: loginUrl }]],
-  };
+  return openLinkKeyboard("Войти на сайте →", loginUrl);
 }
 
-/** @deprecated Prefer mainReplyKeyboard + openCabinetKeyboard */
-export function mainMenuKeyboard(opts?: {
+/** @deprecated Prefer mainReplyKeyboard + openLinkKeyboard */
+export function mainMenuKeyboard(_opts?: {
   cabinetUrl?: string;
   loginUrl?: string;
 }): InlineKeyboard {
-  void opts;
   return {
     inline_keyboard: [
       [
-        { text: "Главная", callback_data: "home" },
-        { text: "Баланс", callback_data: "balance" },
+        { text: "Сводка", callback_data: "home" },
+        { text: "Занятия", callback_data: "schedule" },
       ],
       [
-        { text: "Занятия", callback_data: "schedule" },
-        { text: "Группы", callback_data: "groups" },
+        { text: "Отработки", callback_data: "makeups" },
+        { text: "Оплатить", callback_data: "pay" },
       ],
-      [{ text: "Кабинет", callback_data: "login" }],
+      [{ text: "Кабинет", callback_data: "cabinet" }],
     ],
   };
 }

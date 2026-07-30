@@ -1,11 +1,8 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { headers } from "next/headers";
 import { getSessionUser } from "@/lib/auth";
 import { getRequestBrand } from "@/lib/brand-server";
-import { getDemoState } from "@/lib/demo-store";
 import { hasSupabase } from "@/lib/env";
-import { getPersonOnboardingStatus } from "@/lib/supabase-data";
 import { getPersonAvatarUrl } from "@/lib/avatars";
 
 const DOCK = [
@@ -23,28 +20,6 @@ export default async function CabinetLayout({
   const user = await getSessionUser();
   if (!user) redirect("/login");
   const brand = await getRequestBrand();
-
-  const hdrs = await headers();
-  const path = hdrs.get("x-pathname") ?? hdrs.get("x-invoke-path") ?? "";
-  const onWelcome = path.includes("/cabinet/welcome");
-  const onConsents = path.includes("/cabinet/consents");
-
-  if (!onWelcome && !onConsents) {
-    let status = "complete";
-    if (hasSupabase() && user.mode === "supabase") {
-      try {
-        status = await getPersonOnboardingStatus(user.personId);
-      } catch {
-        status = "complete";
-      }
-    } else if (user.mode === "demo") {
-      const person = getDemoState().persons.find((p) => p.id === user.personId);
-      status = person?.onboarding_status ?? "complete";
-    }
-    if (status === "draft" || status === "invited" || status === "activated") {
-      redirect("/cabinet/welcome");
-    }
-  }
 
   let avatarUrl: string | null = null;
   if (hasSupabase() && user.mode === "supabase") {
@@ -86,11 +61,7 @@ export default async function CabinetLayout({
         aria-label="Меню кабинета"
       >
         {DOCK.map((item) => (
-          <Link
-            key={item.href}
-            href={item.href}
-            className="nav-dock-link"
-          >
+          <Link key={item.href} href={item.href} className="nav-dock-link">
             {item.label}
           </Link>
         ))}

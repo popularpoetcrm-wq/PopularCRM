@@ -3,11 +3,13 @@
 import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
+import { safeCabinetNext } from "@/lib/cabinet-next";
 
 function MagicConsume() {
   const router = useRouter();
   const params = useSearchParams();
   const token = params.get("token") ?? "";
+  const next = safeCabinetNext(params.get("next"));
   const [error, setError] = useState("");
   const [status, setStatus] = useState<"working" | "done" | "fail">("working");
 
@@ -37,9 +39,10 @@ function MagicConsume() {
       if (roles.includes("admin") || roles.includes("teacher")) {
         router.replace("/admin");
       } else if (json.data.needsWelcome) {
+        // Finish onboarding first; after that user lands in cabinet.
         router.replace("/cabinet/welcome");
       } else {
-        router.replace("/cabinet");
+        router.replace(next);
       }
       router.refresh();
     })();
@@ -47,7 +50,7 @@ function MagicConsume() {
     return () => {
       cancelled = true;
     };
-  }, [token, router]);
+  }, [token, next, router]);
 
   return (
     <main className="mx-auto flex min-h-screen max-w-md flex-col justify-center px-6">

@@ -6,6 +6,7 @@ import { format } from "date-fns";
 import { ru } from "date-fns/locale";
 import Link from "next/link";
 import { AvatarUpload } from "@/components/AvatarUpload";
+import { CabinetLoading } from "@/components/CabinetLoading";
 
 type Child = {
   id: string;
@@ -62,15 +63,21 @@ export default function WelcomePage() {
   const [childForms, setChildForms] = useState<
     Record<string, { full_name: string; birth_date: string; tshirt_size: string }>
   >({});
+  const [loading, setLoading] = useState(true);
 
   async function load() {
     const res = await fetch("/api/v1/me/onboarding");
     const json = await res.json();
     if (!json.ok) {
       setMessage(json.error ?? "Ошибка");
+      setLoading(false);
       return;
     }
     const d = json.data as Welcome;
+    if (d.onboarding_status === "complete") {
+      router.replace("/cabinet");
+      return;
+    }
     setData(d);
     setProfile({
       full_name: d.person.full_name ?? "",
@@ -91,6 +98,7 @@ export default function WelcomePage() {
     setChildForms(kids);
     const av = await fetch("/api/v1/me/avatar").then((r) => r.json());
     if (av.ok) setAvatarUrl(av.data.url);
+    setLoading(false);
   }
 
   useEffect(() => {
@@ -182,8 +190,21 @@ export default function WelcomePage() {
     router.refresh();
   }
 
-  if (!data) {
-    return <p className="text-fog">{message || "Загрузка…"}</p>;
+  if (loading || !data) {
+    return (
+      <div className="space-y-4">
+        {message ? (
+          <div className="glass p-5">
+            <p className="text-sm text-warn">{message}</p>
+            <Link href="/login" className="btn btn-stage mt-4 inline-flex">
+              Войти заново
+            </Link>
+          </div>
+        ) : (
+          <CabinetLoading label="Загружаем онбординг…" />
+        )}
+      </div>
+    );
   }
 
   const firstName = profile.full_name.split(" ")[0] || data.person.full_name.split(" ")[0];
