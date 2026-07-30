@@ -3,10 +3,13 @@ import { jsonError, jsonOk } from "@/lib/api";
 import { validateTelegramInitData } from "@/integrations/telegram";
 import { hasSupabase } from "@/lib/env";
 import { getDemoState, DEMO_TENANT_ID } from "@/lib/demo-store";
+import { applySessionCookies } from "@/lib/session";
 
 const bodySchema = z.object({
   initData: z.string().min(10),
 });
+
+const INIT_DATA_MAX_AGE_SEC = 24 * 60 * 60;
 
 export async function POST(req: Request) {
   const parsed = bodySchema.safeParse(await req.json());
@@ -16,6 +19,12 @@ export async function POST(req: Request) {
   if (!result.ok || !result.user) {
     return jsonError("Invalid Telegram initData", 401);
   }
+  if (
+    result.authDate != null &&
+    Math.floor(Date.now() / 1000) - result.authDate > INIT_DATA_MAX_AGE_SEC
+  ) {
+    return jsonError("Telegram initData expired", 401);
+  }
 
   if (!hasSupabase()) {
     const person = getDemoState().persons[1];
@@ -24,8 +33,10 @@ export async function POST(req: Request) {
       telegramUserId: result.user.id,
       mode: "demo",
     });
-    res.cookies.set("studio_person_id", person.id, { httpOnly: true, path: "/", sameSite: "lax" });
-    return res;
+    return applySessionCookies(res, {
+      personId: person.id,
+      tenantId: DEMO_TENANT_ID,
+    });
   }
 
   const { getAdminClient } = await import("@/lib/supabase/admin");
@@ -44,11 +55,12 @@ export async function POST(req: Request) {
     return jsonError("Telegram account not linked. Complete registration first.", 404);
   }
 
-  const res = jsonOk({ personId: identity.person_id, telegramUserId: result.user.id });
-  res.cookies.set("studio_person_id", identity.person_id, {
-    httpOnly: true,
-    path: "/",
-    sameSite: "lax",
+  const res = jsonOk({
+    personId: identity.person_id,
+    telegramUserId: result.user.id,
   });
-  return res;
+  return applySessionCookies(res, {
+    personId: identity.person_id,
+    tenantId,
+  });
 }

@@ -12,7 +12,8 @@ const bodySchema = z.object({
   enrollmentId: z.string().uuid().or(z.string().min(1)).optional(),
   planId: z.string().optional(),
   payerPersonId: z.string().optional(),
-  amount: z.coerce.number().positive(),
+  /** Ignored for package checkout — server uses DB amount / plan price. */
+  amount: z.coerce.number().positive().optional(),
   currency: z.string().default("PLN"),
   description: z.string().optional(),
   /** package | trial | event — trials/events always checkout on populartickets */
@@ -29,6 +30,9 @@ export async function POST(req: Request) {
   const productKind = parsed.data.productKind as ProductKind;
 
   if (!hasSupabase() || user.mode === "demo") {
+    if (parsed.data.amount == null) {
+      return jsonError("amount required in demo");
+    }
     const state = getDemoState();
     const id = `pay-${nanoid(8)}`;
     const jar = await cookies();
@@ -104,6 +108,15 @@ export async function POST(req: Request) {
         return jsonError("Это начисление уже закрыто", 400);
       }
 
+      // Server-side amount only — never trust client payload.
+      const chargeAmount = Math.max(
+        0,
+        Number(existing.amount) - Number(existing.amount_paid ?? 0),
+      );
+      if (chargeAmount <= 0) {
+        return jsonError("Нечего оплачивать по этому начислению", 400);
+      }
+
       const sessionId = `crm-${nanoid(16)}`;
       const description =
         parsed.data.description ?? existing.description ?? "Абонемент";
@@ -117,8 +130,8 @@ export async function POST(req: Request) {
       if (hasTicketsCheckout()) {
         const checkout = await createTicketsCrmCheckout({
           crmPaymentId: existing.id,
-          amount: parsed.data.amount,
-          currency: parsed.data.currency,
+          amount: chargeAmount,
+          currency: existing.currency || parsed.data.currency,
           description,
           buyerEmail: user.email,
         });
@@ -129,8 +142,8 @@ export async function POST(req: Request) {
         const { paymentReturnUrl, paymentStatusUrl } = await import("@/lib/brands");
         const registered = await registerP24Transaction({
           sessionId,
-          amount: Math.round(parsed.data.amount * 100),
-          currency: parsed.data.currency,
+          amount: Math.round(chargeAmount * 100),
+          currency: existing.currency || parsed.data.currency,
           description,
           email: user.email,
           urlReturn: paymentReturnUrl("/pay/return"),
@@ -156,14 +169,24 @@ export async function POST(req: Request) {
       return jsonOk(updated);
     }
 
+    const planId = parsed.data.planId ?? enrollment.plan_id;
+    const { data: plan } = await db
+      .from("package_plans")
+      .select("id, name, price_gross, currency")
+      .eq("id", planId)
+      .maybeSingle();
+    if (!plan) return jsonError("План пакета не найден", 404);
+    const planAmount = Number(plan.price_gross);
+    if (!(planAmount > 0)) return jsonError("У плана нет цены", 400);
+
     const result = await createPaymentLink(db, {
       tenantId: user.tenantId,
       enrollmentId: parsed.data.enrollmentId!,
-      planId: parsed.data.planId ?? enrollment.plan_id,
+      planId: plan.id,
       payerPersonId: parsed.data.payerPersonId ?? user.personId,
-      amount: parsed.data.amount,
-      currency: parsed.data.currency,
-      description: parsed.data.description,
+      amount: planAmount,
+      currency: plan.currency || parsed.data.currency,
+      description: parsed.data.description ?? plan.name,
       email: user.email,
     });
 
@@ -173,9 +196,18 @@ export async function POST(req: Request) {
     );
   }
 
+  // trial / event — only staff may invent an amount; clients need a catalog offer later
+  if (!isAdmin(user.roles) && !user.roles.includes("teacher")) {
+    return jsonError("Создание trial/event оплаты только для персонала", 403);
+  }
+  if (parsed.data.amount == null || !(parsed.data.amount > 0)) {
+    return jsonError("amount required for trial/event");
+  }
+
   // trial / event — payment row without enrollment package activation
   const sessionId = `crm-${nanoid(16)}`;
   const description = parsed.data.description ?? productKind;
+  const chargeAmount = parsed.data.amount;
   const { hasTicketsCheckout, createTicketsCrmCheckout } = await import(
     "@/lib/tickets-checkout"
   );
@@ -186,7 +218,7 @@ export async function POST(req: Request) {
       tenant_id: user.tenantId,
       provider: "przelewy24",
       payer_person_id: parsed.data.payerPersonId ?? user.personId,
-      amount: parsed.data.amount,
+      amount: chargeAmount,
       currency: parsed.data.currency,
       status: "pending",
       payment_method: "online",
@@ -205,7 +237,7 @@ export async function POST(req: Request) {
   if (hasTicketsCheckout()) {
     const checkout = await createTicketsCrmCheckout({
       crmPaymentId: payment.id,
-      amount: parsed.data.amount,
+      amount: chargeAmount,
       currency: parsed.data.currency,
       description,
       buyerEmail: user.email,
@@ -217,7 +249,7 @@ export async function POST(req: Request) {
     const { paymentReturnUrl, paymentStatusUrl } = await import("@/lib/brands");
     const registered = await registerP24Transaction({
       sessionId,
-      amount: Math.round(parsed.data.amount * 100),
+      amount: Math.round(chargeAmount * 100),
       currency: parsed.data.currency,
       description,
       email: user.email,

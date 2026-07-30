@@ -10,6 +10,7 @@ type Person = {
   full_name: string;
   has_email: boolean;
   birth_md: string | null;
+  requires_birth?: boolean;
   is_minor: boolean;
 };
 
@@ -29,7 +30,6 @@ export default function JoinClient() {
   const [birth, setBirth] = useState("");
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
-  const [magicUrl, setMagicUrl] = useState("");
 
   useEffect(() => {
     void (async () => {
@@ -66,9 +66,9 @@ export default function JoinClient() {
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     if (!personId) return setMsg("Выбери себя в списке");
+    if (!birth.trim()) return setMsg("Укажи дату рождения для проверки");
     setBusy(true);
     setMsg("");
-    setMagicUrl("");
     const res = await fetch("/api/v1/join/claim", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -77,7 +77,7 @@ export default function JoinClient() {
         email,
         phone: phone || null,
         telegram_username: telegram || null,
-        birth_date: birth || null,
+        birth_date: birth,
       }),
     });
     const json = await res.json();
@@ -86,11 +86,11 @@ export default function JoinClient() {
       setMsg(json.error);
       return;
     }
-    setMagicUrl(json.data.magicUrl);
     setMsg(
-      json.data.emailed
-        ? "Готово — ссылка также на почте."
-        : "Готово — сохрани ссылку входа (письмо не настроено).",
+      json.data.message ||
+        (json.data.emailed
+          ? "Готово — ссылка входа на почте."
+          : "Контакты сохранены. Напиши студии за ссылкой входа."),
     );
   }
 
@@ -102,8 +102,8 @@ export default function JoinClient() {
       <section className="glass mt-6 space-y-4 p-6">
         <h1 className="font-display text-3xl">Это я</h1>
         <p className="text-sm text-fog">
-          Найди себя в группе и оставь email / Telegram — кабинет откроется без
-          ручного инвайта от админа.
+          Найди себя в группе, подтверди день рождения и оставь email. Ссылка
+          входа придёт на почту — в ответе API её больше нет.
         </p>
 
         <label className="block text-sm">
@@ -139,7 +139,8 @@ export default function JoinClient() {
             <div className="max-h-56 overflow-auto rounded-lg border border-white/10">
               {!filtered.length ? (
                 <p className="p-4 text-sm text-fog">
-                  В этой группе все уже с email — или список пуст. Войди через{" "}
+                  Нет доступных профилей (нужна ДР в базе и ещё нет email). Войди
+                  через{" "}
                   <Link href="/login" className="underline">
                     /login
                   </Link>
@@ -203,29 +204,30 @@ export default function JoinClient() {
                 placeholder="username"
               />
             </label>
-            {selected.birth_md ? (
-              <label className="block text-sm">
-                День рождения (мм-дд) — для проверки
-                <input
-                  className="input mt-1"
-                  value={birth}
-                  onChange={(e) => setBirth(e.target.value)}
-                  placeholder={selected.birth_md}
-                  required
-                />
-              </label>
-            ) : null}
+            <label className="block text-sm">
+              День рождения (мм-дд) *
+              <input
+                className="input mt-1"
+                value={birth}
+                onChange={(e) => setBirth(e.target.value)}
+                placeholder={selected.birth_md ?? "MM-DD"}
+                required
+              />
+            </label>
             <button className="btn btn-primary w-full" disabled={busy} type="submit">
-              {busy ? "…" : "Открыть кабинет"}
+              {busy ? "…" : "Получить ссылку на email"}
             </button>
           </form>
         ) : null}
 
-        {msg ? <p className="break-all text-sm text-stage-deep">{msg}</p> : null}
-        {magicUrl ? (
-          <a className="btn btn-stage block w-full text-center" href={magicUrl}>
-            Войти по ссылке
-          </a>
+        {msg ? <p className="text-sm text-stage-deep">{msg}</p> : null}
+        {msg && !busy ? (
+          <p className="text-sm text-fog">
+            Дальше:{" "}
+            <Link href="/login" className="underline">
+              /login
+            </Link>
+          </p>
         ) : null}
       </section>
     </main>

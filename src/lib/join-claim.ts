@@ -43,14 +43,17 @@ export async function listJoinCandidatesDb(input: {
 
   const { data: persons, error: pErr } = await db
     .from("persons")
-    .select("id, full_name, email, phone, telegram_username, birth_date, is_minor")
+    .select("id, full_name, email, phone, telegram_username, birth_date, is_minor, status")
     .in("id", ids)
-    .eq("status", "active")
+    .in("status", ["active", "completed"])
     .order("full_name");
   if (pErr) throw new Error(pErr.message);
 
   const rows = (persons ?? [])
+    // Public join only for profiles without a real email yet.
     .filter((p) => input.includeAll || !isRealEmail(p.email as string | null))
+    // Claimable only when birth month-day is on file (required verifier).
+    .filter((p) => Boolean(p.birth_date) || input.includeAll)
     .map((p) => ({
       id: p.id as string,
       full_name: p.full_name as string,
@@ -61,6 +64,7 @@ export async function listJoinCandidatesDb(input: {
       birth_md: p.birth_date
         ? String(p.birth_date).slice(5, 10)
         : null,
+      requires_birth: Boolean(p.birth_date),
       is_minor: Boolean(p.is_minor),
     }));
 
@@ -83,21 +87,32 @@ export async function claimJoinContactDb(raw: unknown) {
   const db = getAdminClient();
   const { data: person, error } = await db
     .from("persons")
-    .select("id, full_name, email, birth_date, tenant_id, is_minor")
+    .select("id, full_name, email, birth_date, tenant_id, is_minor, status")
     .eq("id", parsed.data.personId)
-    .eq("status", "active")
+    .in("status", ["active", "completed"])
     .maybeSingle();
   if (error) throw new Error(error.message);
   if (!person) throw new Error("Ученик не найден");
 
-  if (person.birth_date && parsed.data.birth_date) {
-    const have = String(person.birth_date).slice(5, 10);
-    const got = parsed.data.birth_date.includes("-")
-      ? parsed.data.birth_date.slice(-5)
-      : parsed.data.birth_date;
-    if (have !== got) {
-      throw new Error("Дата рождения не совпала — выбери себя ещё раз или напиши студии");
-    }
+  if (isRealEmail(person.email as string | null)) {
+    throw new Error("У этого профиля уже есть email — войди через /login");
+  }
+
+  // Birth month-day is mandatory anti-takeover check.
+  if (!person.birth_date) {
+    throw new Error(
+      "Для этого профиля нет даты рождения в базе — напиши студии, сами привяжем контакты",
+    );
+  }
+  if (!parsed.data.birth_date?.trim()) {
+    throw new Error("Укажи дату рождения (день и месяц) для подтверждения");
+  }
+  const have = String(person.birth_date).slice(5, 10);
+  const got = parsed.data.birth_date.includes("-")
+    ? parsed.data.birth_date.slice(-5)
+    : parsed.data.birth_date;
+  if (have !== got) {
+    throw new Error("Дата рождения не совпала — выбери себя ещё раз или напиши студии");
   }
 
   const email = parsed.data.email.trim().toLowerCase();
@@ -130,10 +145,13 @@ export async function claimJoinContactDb(raw: unknown) {
   if (upErr) throw new Error(upErr.message);
 
   const invite = await invitePersonDb(person.id, { email });
+  // Never return magicUrl to the browser — only email (or ask studio if email failed).
   return {
     person: { id: person.id, full_name: person.full_name, email },
-    magicUrl: invite.magicUrl,
     emailed: invite.emailed,
+    message: invite.emailed
+      ? "Готово — ссылка входа отправлена на email."
+      : "Контакты сохранены, но письмо не ушло. Напиши студии — пришлём ссылку вручную.",
   };
 }
 

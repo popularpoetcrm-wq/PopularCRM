@@ -12,6 +12,7 @@ import {
   tenantIdOrDefault,
 } from "@/lib/supabase-data";
 import { getAdminClient } from "@/lib/supabase/admin";
+import { applySessionCookies, clearSessionCookies } from "@/lib/session";
 
 const bodySchema = z.object({
   email: z.string().email(),
@@ -45,17 +46,10 @@ export async function POST(req: Request) {
       onboarding_status: person.onboarding_status ?? "complete",
       needsWelcome,
     });
-    res.cookies.set("studio_person_id", person.id, {
-      httpOnly: true,
-      sameSite: "lax",
-      path: "/",
+    return applySessionCookies(res, {
+      personId: person.id,
+      tenantId: DEMO_TENANT_ID,
     });
-    res.cookies.set("studio_tenant_id", DEMO_TENANT_ID, {
-      httpOnly: true,
-      sameSite: "lax",
-      path: "/",
-    });
-    return res;
   }
 
   try {
@@ -120,6 +114,10 @@ export async function POST(req: Request) {
       ? `Код из 6 цифр отправлен в ${channels}. Введи его ниже.`
       : "Не удалось отправить код (нет Resend и Telegram). Попроси админа настроить почту или привяжи бота.";
 
+    const allowDebugOtp =
+      process.env.NODE_ENV !== "production" &&
+      process.env.ALLOW_DEBUG_OTP === "true";
+
     return jsonOk({
       mode: "magic",
       message,
@@ -127,8 +125,8 @@ export async function POST(req: Request) {
       personId: person.id,
       roles,
       onboarding_status: person.onboarding_status ?? "complete",
-      // Only for local/dev when nothing was delivered — UI must NOT autofill
-      debugCode: delivered.length ? undefined : code,
+      // Never leak OTP in production / default deploys
+      debugCode: allowDebugOtp && delivered.length === 0 ? code : undefined,
     });
   } catch (e) {
     return jsonError(e instanceof Error ? e.message : "login fail", 500);
@@ -137,7 +135,5 @@ export async function POST(req: Request) {
 
 export async function DELETE() {
   const res = NextResponse.json({ ok: true });
-  res.cookies.delete("studio_person_id");
-  res.cookies.delete("studio_tenant_id");
-  return res;
+  return clearSessionCookies(res);
 }

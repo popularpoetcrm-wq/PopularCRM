@@ -1,6 +1,7 @@
 import { cookies } from "next/headers";
 import { getDemoState, DEMO_TENANT_ID } from "@/lib/demo-store";
 import { hasSupabase } from "@/lib/env";
+import { readSessionFromCookies } from "@/lib/session";
 
 export type SessionUser = {
   personId: string;
@@ -13,12 +14,16 @@ export type SessionUser = {
 
 export async function getSessionUser(): Promise<SessionUser | null> {
   const jar = await cookies();
-  const personId = jar.get("studio_person_id")?.value;
-  if (!personId) return null;
+  // Only signed studio_session is accepted. Bare studio_person_id is ignored
+  // (forgeable UUID cookie — security fix).
+  const session = readSessionFromCookies(jar);
+  if (!session) return null;
+  const personId = session.personId;
 
   if (!hasSupabase()) {
     const person = getDemoState().persons.find((p) => p.id === personId);
     if (!person) return null;
+    if (session.tenantId !== DEMO_TENANT_ID) return null;
     return {
       personId: person.id,
       tenantId: DEMO_TENANT_ID,
@@ -29,13 +34,13 @@ export async function getSessionUser(): Promise<SessionUser | null> {
     };
   }
 
-  // Supabase path: resolve person by id (service role)
   const { getAdminClient } = await import("@/lib/supabase/admin");
   const db = getAdminClient();
   const { data: person } = await db
     .from("persons")
     .select("id, tenant_id, full_name, email")
     .eq("id", personId)
+    .eq("tenant_id", session.tenantId)
     .maybeSingle();
   if (!person) return null;
 

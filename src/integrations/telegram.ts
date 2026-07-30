@@ -89,6 +89,7 @@ export async function sendTemplatedTelegram(params: {
 /** Validate Telegram Mini App initData (HMAC-SHA256). */
 export function validateTelegramInitData(initData: string): {
   ok: boolean;
+  authDate?: number;
   user?: { id: number; username?: string; first_name?: string; last_name?: string };
 } {
   const env = getEnv();
@@ -117,13 +118,24 @@ export function validateTelegramInitData(initData: string): {
 
   const userRaw = params.get("user");
   const user = userRaw ? JSON.parse(userRaw) : undefined;
-  return { ok: true, user };
+  const authDateRaw = params.get("auth_date");
+  const authDate = authDateRaw ? Number(authDateRaw) : undefined;
+  return {
+    ok: true,
+    user,
+    authDate: Number.isFinite(authDate) ? authDate : undefined,
+  };
 }
 
 export function verifyWebhookSecret(headerValue: string | null): boolean {
   const env = getEnv();
-  if (!env.TELEGRAM_WEBHOOK_SECRET) return true;
-  return headerValue === env.TELEGRAM_WEBHOOK_SECRET;
+  const expected = env.TELEGRAM_WEBHOOK_SECRET?.trim();
+  const isProd =
+    process.env.VERCEL_ENV === "production" ||
+    process.env.NODE_ENV === "production";
+  // Missing secret must not open the webhook in production.
+  if (!expected) return !isProd;
+  return Boolean(headerValue) && headerValue === expected;
 }
 
 export function sha256(input: string) {

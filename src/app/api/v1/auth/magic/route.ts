@@ -5,12 +5,13 @@ import { consumeInviteToken } from "@/lib/demo-onboarding";
 import { hasSupabase } from "@/lib/env";
 import { consumeInviteTokenDb } from "@/lib/supabase-onboarding";
 import { getPersonRoles } from "@/lib/supabase-data";
+import { applySessionCookies } from "@/lib/session";
 
 const schema = z.object({
   token: z.string().min(8),
 });
 
-/** Consume invite magic-link token → set session cookie. */
+/** Consume invite magic-link token → set signed session cookie. */
 export async function POST(req: Request) {
   const parsed = schema.safeParse(await req.json());
   if (!parsed.success) return jsonError("Invalid token");
@@ -32,17 +33,10 @@ export async function POST(req: Request) {
         needsWelcome,
         mode: "supabase",
       });
-      res.cookies.set("studio_person_id", person.id, {
-        httpOnly: true,
-        sameSite: "lax",
-        path: "/",
+      return applySessionCookies(res, {
+        personId: person.id,
+        tenantId: person.tenant_id,
       });
-      res.cookies.set("studio_tenant_id", person.tenant_id, {
-        httpOnly: true,
-        sameSite: "lax",
-        path: "/",
-      });
-      return res;
     }
 
     const person = consumeInviteToken(parsed.data.token);
@@ -55,17 +49,10 @@ export async function POST(req: Request) {
       needsWelcome,
       mode: "demo",
     });
-    res.cookies.set("studio_person_id", person.id, {
-      httpOnly: true,
-      sameSite: "lax",
-      path: "/",
+    return applySessionCookies(res, {
+      personId: person.id,
+      tenantId: DEMO_TENANT_ID,
     });
-    res.cookies.set("studio_tenant_id", DEMO_TENANT_ID, {
-      httpOnly: true,
-      sameSite: "lax",
-      path: "/",
-    });
-    return res;
   } catch (e) {
     return jsonError(e instanceof Error ? e.message : "fail", 400);
   }

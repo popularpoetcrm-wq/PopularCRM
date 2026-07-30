@@ -42,6 +42,11 @@ export const envSchema = z.object({
   NEXT_PUBLIC_TICKETS_URL: z.string().optional(),
 
   CRON_SECRET: z.string().optional(),
+
+  /** HMAC secret for signed studio_session cookies. */
+  SESSION_SECRET: z.string().optional(),
+  /** Local only: return OTP in JSON when delivery fails. Never in production. */
+  ALLOW_DEBUG_OTP: z.string().optional(),
 });
 
 export type Env = z.infer<typeof envSchema>;

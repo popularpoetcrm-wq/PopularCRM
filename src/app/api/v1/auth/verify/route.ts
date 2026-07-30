@@ -9,6 +9,7 @@ import {
   markPersonActivated,
 } from "@/lib/supabase-data";
 import { getAdminClient } from "@/lib/supabase/admin";
+import { applySessionCookies } from "@/lib/session";
 
 const bodySchema = z.object({
   email: z.string().email(),
@@ -68,17 +69,10 @@ export async function POST(req: Request) {
       needsWelcome,
       mode: "supabase",
     });
-    res.cookies.set("studio_person_id", person.id, {
-      httpOnly: true,
-      sameSite: "lax",
-      path: "/",
+    return applySessionCookies(res, {
+      personId: person.id,
+      tenantId: person.tenant_id,
     });
-    res.cookies.set("studio_tenant_id", person.tenant_id, {
-      httpOnly: true,
-      sameSite: "lax",
-      path: "/",
-    });
-    return res;
   } catch (e) {
     return jsonError(e instanceof Error ? e.message : "verify fail", 500);
   }
