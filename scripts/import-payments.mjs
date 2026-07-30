@@ -63,6 +63,21 @@ async function upsertChunk(table, rows, onConflict, label) {
   return true;
 }
 
+async function loadPaymentDependencies(table, paymentIds) {
+  const rows = [];
+  for (let i = 0; i < paymentIds.length; i += 80) {
+    const { data, error } = await db
+      .from(table)
+      .select("payment_id")
+      .in("payment_id", paymentIds.slice(i, i + 80));
+    if (error) {
+      throw new Error(`Cannot inspect ${table}: ${error.message}`);
+    }
+    rows.push(...(data ?? []));
+  }
+  return rows;
+}
+
 async function main() {
   console.log("Phase 3 totals", payload.totals);
 
@@ -131,6 +146,63 @@ async function main() {
     paid_at: p.paid_at ?? null,
   }));
 
+  // Imported aggregate payments can already be referenced by an invoice,
+  // package, or provider event. Preserve those rows and omit their equivalent
+  // split-cycle replacements so revenue is neither broken nor duplicated.
+  const { data: currentImports, error: currentImportsError } = await db
+    .from("payments")
+    .select(
+      "id, enrollment_id, amount, amount_paid, status, provider_session_id",
+    )
+    .like("provider_session_id", "import:%");
+  if (currentImportsError) {
+    throw new Error(
+      `Cannot inspect current imported payments: ${currentImportsError.message}`,
+    );
+  }
+  const currentImportIds = (currentImports ?? []).map((row) => row.id);
+  const dependencyTables = ["student_packages", "payment_events", "invoices"];
+  const dependencies = {};
+  for (const table of dependencyTables) {
+    dependencies[table] = await loadPaymentDependencies(table, currentImportIds);
+  }
+  const protectedPaymentIds = new Set(
+    dependencyTables.flatMap((table) =>
+      dependencies[table].map((row) => row.payment_id),
+    ),
+  );
+  const protectedImports = (currentImports ?? []).filter((row) =>
+    protectedPaymentIds.has(row.id),
+  );
+  const protectedEnrollmentIds = new Set(
+    protectedImports.map((row) => row.enrollment_id).filter(Boolean),
+  );
+  const protectedMismatches = protectedImports.filter((payment) => {
+    if (!payment.enrollment_id) return true;
+    const replacements = rows.filter(
+      (row) => row.enrollment_id === payment.enrollment_id,
+    );
+    const replacementAmount = replacements.reduce(
+      (sum, row) => sum + Number(row.amount),
+      0,
+    );
+    const replacementPaid = replacements.reduce(
+      (sum, row) => sum + Number(row.amount_paid),
+      0,
+    );
+    return (
+      replacements.length === 0 ||
+      Math.abs(replacementAmount - Number(payment.amount)) > 0.01 ||
+      Math.abs(replacementPaid - Number(payment.amount_paid)) > 0.01
+    );
+  });
+  const rowsToWrite = rows.filter(
+    (row) => !protectedEnrollmentIds.has(row.enrollment_id),
+  );
+  const deletableImportIds = (currentImports ?? [])
+    .filter((row) => !protectedPaymentIds.has(row.id))
+    .map((row) => row.id);
+
   if (!APPLY) {
     const paidRows = rows.filter((row) => row.status === "paid");
     const pendingRows = rows.filter((row) => row.status === "pending");
@@ -149,6 +221,12 @@ async function main() {
       paidAmount,
       pendingPayments: pendingRows.length,
       openAmount,
+      currentImportedPayments: currentImports?.length ?? 0,
+      currentImportsToDelete: deletableImportIds.length,
+      newPaymentRowsToWrite: rowsToWrite.length,
+      legacyPaymentRowsPreserved: protectedImports.length,
+      paymentRowsAfterApply: rowsToWrite.length + protectedImports.length,
+      protectedPaymentMismatches: protectedMismatches.length,
       currentPackageBalances: payload.current_packages_preview?.length ?? 0,
       packageBalancesNeedingReview:
         payload.current_packages_preview?.filter((row) => row.needs_review)
@@ -158,17 +236,25 @@ async function main() {
     return;
   }
 
-  // Delete previous import payments for clean re-run
-  const { error: delErr } = await db
-    .from("payments")
-    .delete()
-    .like("provider_session_id", "import:%");
-  if (delErr) {
-    throw new Error(`Cannot clear previous import payments: ${delErr.message}`);
+  if (protectedMismatches.length > 0) {
+    throw new Error(
+      `Apply refused: ${protectedMismatches.length} protected legacy payments do not match their replacement cycles`,
+    );
   }
-  console.log("OK cleared previous import:* payments");
 
-  const ok = await upsertChunk("payments", rows, "id", "payments");
+  // Delete only resolved, unreferenced legacy import rows. Referenced rows are
+  // preserved above together with their equivalent enrollment cycles.
+  for (let i = 0; i < deletableImportIds.length; i += 80) {
+    const chunk = deletableImportIds.slice(i, i + 80);
+    const { error: delErr } = await db.from("payments").delete().in("id", chunk);
+    if (delErr) {
+      throw new Error(`Cannot clear previous import payments: ${delErr.message}`);
+    }
+  }
+  console.log("OK cleared previous import payments", deletableImportIds.length);
+  console.log("OK preserved referenced import payments", protectedImports.length);
+
+  const ok = await upsertChunk("payments", rowsToWrite, "id", "payments");
   if (!ok) process.exit(1);
 
   // Patch group directions from titles
@@ -202,6 +288,20 @@ async function main() {
   const debt = (sumRows ?? [])
     .filter((p) => ["pending", "partial"].includes(p.status))
     .reduce((s, p) => s + (Number(p.amount || 0) - Number(p.amount_paid || 0)), 0);
+  const expectedRows = rowsToWrite.length + protectedImports.length;
+  const expectedRevenue = rows.reduce(
+    (sum, row) => sum + Number(row.amount_paid || 0),
+    0,
+  );
+  if (
+    (sumRows?.length ?? 0) !== expectedRows ||
+    Math.abs(revenue - expectedRevenue) > 0.01 ||
+    debt !== 0
+  ) {
+    throw new Error(
+      `Import verification failed: expected ${expectedRows} rows / ${expectedRevenue} paid, got ${sumRows?.length ?? 0} rows / ${revenue} paid / ${debt} debt`,
+    );
+  }
   console.log({ imported: sumRows?.length ?? 0, revenue, debt });
 }
 
