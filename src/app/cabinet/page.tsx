@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { format } from "date-fns";
 import { ru } from "date-fns/locale";
+import { CabinetLoading } from "@/components/CabinetLoading";
 import { STUDIO_POLICY } from "@/lib/studio-policy";
 
 type Dash = {
@@ -89,7 +90,7 @@ export default function CabinetHome() {
   }
 
   if (!data) {
-    return <p className="text-fog">Загрузка…</p>;
+    return <CabinetLoading label="Загружаем кабинет…" />;
   }
 
   const firstName = data.me.fullName.split(" ")[0];

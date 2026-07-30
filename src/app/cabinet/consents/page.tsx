@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { format } from "date-fns";
 import { ru } from "date-fns/locale";
+import { CabinetLoading } from "@/components/CabinetLoading";
 
 type Doc = {
   key: string;
@@ -21,15 +22,18 @@ export default function ConsentsPage() {
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
   const [open, setOpen] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
 
   async function load() {
     const res = await fetch("/api/v1/me/consents");
     const json = await res.json();
     if (!json.ok) {
       setMessage(json.error ?? "Ошибка");
+      setLoading(false);
       return;
     }
     setDocs(json.data.docs ?? []);
+    setLoading(false);
   }
 
   useEffect(() => {
@@ -70,7 +74,10 @@ export default function ConsentsPage() {
         </p>
       </div>
 
-      {docs.map((d) => (
+      {loading ? <CabinetLoading label="Загружаем согласия…" /> : null}
+
+      {!loading
+        ? docs.map((d) => (
         <article key={d.key} className="glass space-y-3 p-4">
           <div className="flex flex-wrap items-start justify-between gap-2">
             <div>
@@ -110,8 +117,10 @@ export default function ConsentsPage() {
             <p className="text-sm text-stage-deep">Актуальная версия принята</p>
           )}
         </article>
-      ))}
+      ))
+        : null}
 
+      {!loading ? (
       <div className="flex flex-wrap gap-3">
         <button
           type="button"
@@ -125,6 +134,7 @@ export default function ConsentsPage() {
           В профиль
         </Link>
       </div>
+      ) : null}
       {message ? <p className="text-sm text-stage-deep">{message}</p> : null}
     </section>
   );

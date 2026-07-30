@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { CabinetLoading } from "@/components/CabinetLoading";
 
 type Payment = { id: string; description: string; status: string; amount: number };
 type Invoice = {
@@ -32,6 +33,7 @@ export default function InvoicesPage() {
   const [message, setMessage] = useState("");
   const [nip, setNip] = useState("");
   const [companyName, setCompanyName] = useState("");
+  const [loading, setLoading] = useState(true);
 
   async function load() {
     const res = await fetch("/api/v1/me/dashboard");
@@ -44,6 +46,7 @@ export default function InvoicesPage() {
       );
       setInvoices(json.data.invoices ?? []);
     }
+    setLoading(false);
   }
 
   useEffect(() => {
@@ -97,50 +100,56 @@ export default function InvoicesPage() {
 
       {message ? <p className="text-sm text-stage-deep">{message}</p> : null}
 
-      <div className="space-y-3">
-        <h2 className="font-display text-xl">Начисления</h2>
-        {payments
-          .filter((payment) =>
-            !invoices.some(
-              (invoice) =>
-                invoice.payment_id === payment.id &&
-                invoice.status !== "cancelled",
-            ),
-          )
-          .map((p) => (
-          <div key={p.id} className="card-quiet flex flex-wrap items-center justify-between gap-3 p-5">
-            <div>
-              <p className="font-semibold">{p.description}</p>
-              <p className="text-sm text-fog">
-                {p.amount} PLN · {PAYMENT_STATUS[p.status] ?? p.status}
-              </p>
-            </div>
-            <button className="btn btn-stage" onClick={() => requestInvoice(p.id)}>
-              Выставить фактуру
-            </button>
-          </div>
-          ))}
-      </div>
+      {loading ? <CabinetLoading label="Загружаем фактуры…" /> : null}
 
-      <div className="space-y-3">
-        <h2 className="font-display text-xl">История</h2>
-        {invoices.map((i) => (
-          <div key={i.id} className="card-quiet flex items-center justify-between p-5">
-            <div>
-              <p className="font-semibold">{i.invoice_number ?? i.id}</p>
-              <p className="text-sm text-fog">
-                {INVOICE_STATUS[i.status] ?? i.status}
-              </p>
-            </div>
-            {i.pdf_url ? (
-              <a className="btn btn-ghost" href={i.pdf_url}>
-                PDF
-              </a>
-            ) : null}
+      {!loading ? (
+        <>
+          <div className="space-y-3">
+            <h2 className="font-display text-xl">Начисления</h2>
+            {payments
+              .filter((payment) =>
+                !invoices.some(
+                  (invoice) =>
+                    invoice.payment_id === payment.id &&
+                    invoice.status !== "cancelled",
+                ),
+              )
+              .map((p) => (
+              <div key={p.id} className="card-quiet flex flex-wrap items-center justify-between gap-3 p-5">
+                <div>
+                  <p className="font-semibold">{p.description}</p>
+                  <p className="text-sm text-fog">
+                    {p.amount} PLN · {PAYMENT_STATUS[p.status] ?? p.status}
+                  </p>
+                </div>
+                <button className="btn btn-stage" onClick={() => requestInvoice(p.id)}>
+                  Выставить фактуру
+                </button>
+              </div>
+              ))}
           </div>
-        ))}
-        {!invoices.length ? <p className="text-fog">Пока нет фактур.</p> : null}
-      </div>
+
+          <div className="space-y-3">
+            <h2 className="font-display text-xl">История</h2>
+            {invoices.map((i) => (
+              <div key={i.id} className="card-quiet flex items-center justify-between p-5">
+                <div>
+                  <p className="font-semibold">{i.invoice_number ?? i.id}</p>
+                  <p className="text-sm text-fog">
+                    {INVOICE_STATUS[i.status] ?? i.status}
+                  </p>
+                </div>
+                {i.pdf_url ? (
+                  <a className="btn btn-ghost" href={i.pdf_url}>
+                    PDF
+                  </a>
+                ) : null}
+              </div>
+            ))}
+            {!invoices.length ? <p className="text-fog">Пока нет фактур.</p> : null}
+          </div>
+        </>
+      ) : null}
     </section>
   );
 }

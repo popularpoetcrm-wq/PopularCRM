@@ -447,6 +447,23 @@ a { color: inherit; text-decoration: none; }
   to { opacity: 1; transform: translateY(0); }
 }
 
+.skeleton {
+  border-radius: 1rem;
+  background: linear-gradient(
+    90deg,
+    color-mix(in oklab, white 6%, transparent) 0%,
+    color-mix(in oklab, white 14%, transparent) 45%,
+    color-mix(in oklab, white 6%, transparent) 100%
+  );
+  background-size: 200% 100%;
+  animation: skeletonShimmer 1.2s ease-in-out infinite;
+}
+
+@keyframes skeletonShimmer {
+  from { background-position: 100% 0; }
+  to { background-position: -100% 0; }
+}
+
 .text-fog { color: var(--text-dim); }
 .text-ok { color: var(--ok); }
 .text-warn { color: var(--warn); }

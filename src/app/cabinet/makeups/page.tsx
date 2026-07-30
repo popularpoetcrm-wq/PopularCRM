@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { format } from "date-fns";
 import { ru } from "date-fns/locale";
 import Link from "next/link";
+import { CabinetLoading } from "@/components/CabinetLoading";
 import { STUDIO_POLICY } from "@/lib/studio-policy";
 
 type Makeup = {
@@ -48,6 +49,7 @@ export default function MakeupsPage() {
   const [selected, setSelected] = useState<Record<string, string>>({});
   const [message, setMessage] = useState("");
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
 
   async function load() {
     const [dashRes, destRes] = await Promise.all([
@@ -61,6 +63,7 @@ export default function MakeupsPage() {
       setGroups(dest.data.groups ?? []);
       setTrials(dest.data.trials ?? []);
     }
+    setLoading(false);
   }
 
   useEffect(() => {
@@ -151,8 +154,11 @@ export default function MakeupsPage() {
       </div>
       {message ? <p className="text-sm text-stage-deep">{message}</p> : null}
 
+      {loading ? <CabinetLoading label="Загружаем отработки…" /> : null}
+
       <div className="space-y-4">
-        {makeups.map((m) => (
+        {!loading
+          ? makeups.map((m) => (
           <article key={m.id} className="glass p-6">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
@@ -217,8 +223,9 @@ export default function MakeupsPage() {
               </button>
             ) : null}
           </article>
-        ))}
-        {!makeups.length ? (
+        ))
+          : null}
+        {!loading && !makeups.length ? (
           <div className="glass p-8 text-center text-fog">
             Нет отработок. Отметь «не приду» в{" "}
             <Link href="/cabinet/schedule" className="underline">

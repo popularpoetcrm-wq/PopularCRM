@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { formatBirthDay } from "@/lib/format-date";
 import { AvatarUpload } from "@/components/AvatarUpload";
+import { CabinetLoading } from "@/components/CabinetLoading";
 
 type Person = {
   id: string;
@@ -51,6 +52,7 @@ export default function ProfilePage() {
   >([]);
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
   const [consentSummary, setConsentSummary] = useState<string>("");
 
@@ -63,6 +65,7 @@ export default function ProfilePage() {
     const json = await res.json();
     if (!json.ok) {
       setMessage(json.error ?? "Ошибка");
+      setLoading(false);
       return;
     }
     const p = json.data.person as Person & { avatar_url?: string | null };
@@ -99,6 +102,7 @@ export default function ProfilePage() {
           .join(" · "),
       );
     }
+    setLoading(false);
   }
 
   useEffect(() => {
@@ -133,6 +137,8 @@ export default function ProfilePage() {
 
   return (
     <section className="space-y-5">
+      {loading ? <CabinetLoading label="Загружаем профиль…" /> : null}
+      {!loading ? (
       <form onSubmit={save} className="glass max-w-xl space-y-4 p-6">
         <h1 className="font-display text-3xl">Профиль</h1>
         <p className="text-sm text-fog">
@@ -233,8 +239,9 @@ export default function ProfilePage() {
           {busy ? "…" : "Сохранить"}
         </button>
       </form>
+      ) : null}
 
-      {parents.length ? (
+      {!loading && parents.length ? (
         <div className="glass max-w-xl p-6">
           <h2 className="font-display text-2xl">Родители / контакты</h2>
           <ul className="mt-4 space-y-3">
@@ -252,7 +259,7 @@ export default function ProfilePage() {
         </div>
       ) : null}
 
-      {children.length ? (
+      {!loading && children.length ? (
         <div className="glass max-w-xl p-6">
           <h2 className="font-display text-2xl">Дети</h2>
           <ul className="mt-4 space-y-3">
@@ -274,13 +281,15 @@ export default function ProfilePage() {
         </div>
       ) : null}
 
+      {!loading ? (
       <div className="glass max-w-xl space-y-2 p-6">
         <h2 className="font-display text-2xl">Согласия</h2>
-        <p className="text-sm text-fog">{consentSummary || "Загрузка…"}</p>
+        <p className="text-sm text-fog">{consentSummary || "—"}</p>
         <Link href="/cabinet/consents" className="btn btn-ghost text-sm">
           Открыть / обновить
         </Link>
       </div>
+      ) : null}
 
       <Link href="/cabinet" className="btn btn-ghost">
         Назад

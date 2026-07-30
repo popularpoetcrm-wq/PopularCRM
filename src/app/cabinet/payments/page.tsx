@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { format } from "date-fns";
 import { ru } from "date-fns/locale";
+import { CabinetLoading } from "@/components/CabinetLoading";
 
 type Payment = {
   id: string;
@@ -38,6 +39,7 @@ export default function PaymentsPage() {
   const [payments, setPayments] = useState<Payment[]>([]);
   const [money, setMoney] = useState<Money | null>(null);
   const [message, setMessage] = useState("");
+  const [loading, setLoading] = useState(true);
 
   async function load() {
     const res = await fetch("/api/v1/me/dashboard");
@@ -46,6 +48,7 @@ export default function PaymentsPage() {
       setPayments(json.data.payments ?? []);
       setMoney(json.data.money ?? null);
     }
+    setLoading(false);
   }
 
   useEffect(() => {
@@ -88,7 +91,9 @@ export default function PaymentsPage() {
       </div>
       {message ? <p className="text-sm text-stage-deep">{message}</p> : null}
 
-      {money ? (
+      {loading ? <CabinetLoading label="Загружаем оплаты…" /> : null}
+
+      {!loading && money ? (
         <div className="glass grid gap-3 p-5 sm:grid-cols-3">
           <div>
             <p className="text-xs uppercase tracking-wide text-fog">Сейчас</p>
@@ -118,46 +123,48 @@ export default function PaymentsPage() {
         </div>
       ) : null}
 
-      <ul className="space-y-3">
-        {!payments.length ? (
-          <li className="glass p-8 text-center text-fog">Пока нет платежей в кабинете.</li>
-        ) : (
-          payments.map((p) => (
-            <li
-              key={p.id}
-              className="card-quiet flex flex-wrap items-center justify-between gap-3 p-5"
-            >
-              <div>
-                <p className="font-semibold">{p.description || "Платёж"}</p>
-                <p className="text-sm text-fog">
-                  {statusRu(p.status)} · {p.amount_paid}/{p.amount} PLN
-                  {p.payment_method ? ` · ${p.payment_method}` : ""}
-                </p>
-                {p.paid_at || p.created_at ? (
-                  <p className="text-xs text-fog">
-                    {format(new Date(p.paid_at || p.created_at!), "d MMMM yyyy", {
-                      locale: ru,
-                    })}
+      {!loading ? (
+        <ul className="space-y-3">
+          {!payments.length ? (
+            <li className="glass p-8 text-center text-fog">Пока нет платежей в кабинете.</li>
+          ) : (
+            payments.map((p) => (
+              <li
+                key={p.id}
+                className="card-quiet flex flex-wrap items-center justify-between gap-3 p-5"
+              >
+                <div>
+                  <p className="font-semibold">{p.description || "Платёж"}</p>
+                  <p className="text-sm text-fog">
+                    {statusRu(p.status)} · {p.amount_paid}/{p.amount} PLN
+                    {p.payment_method ? ` · ${p.payment_method}` : ""}
                   </p>
+                  {p.paid_at || p.created_at ? (
+                    <p className="text-xs text-fog">
+                      {format(new Date(p.paid_at || p.created_at!), "d MMMM yyyy", {
+                        locale: ru,
+                      })}
+                    </p>
+                  ) : null}
+                </div>
+                {p.payment_url && ["pending", "partial"].includes(p.status) ? (
+                  <a className="btn btn-ghost text-sm" href={p.payment_url} target="_blank" rel="noreferrer">
+                    Оплатить
+                  </a>
+                ) : ["pending", "partial"].includes(p.status) && p.enrollment_id ? (
+                  <button
+                    type="button"
+                    className="btn btn-primary text-sm"
+                    onClick={() => createLink(p)}
+                  >
+                    Оплатить онлайн
+                  </button>
                 ) : null}
-              </div>
-              {p.payment_url && ["pending", "partial"].includes(p.status) ? (
-                <a className="btn btn-ghost text-sm" href={p.payment_url} target="_blank" rel="noreferrer">
-                  Оплатить
-                </a>
-              ) : ["pending", "partial"].includes(p.status) && p.enrollment_id ? (
-                <button
-                  type="button"
-                  className="btn btn-primary text-sm"
-                  onClick={() => createLink(p)}
-                >
-                  Оплатить онлайн
-                </button>
-              ) : null}
-            </li>
-          ))
-        )}
-      </ul>
+              </li>
+            ))
+          )}
+        </ul>
+      ) : null}
 
       <Link href="/cabinet" className="btn btn-ghost">
         Назад

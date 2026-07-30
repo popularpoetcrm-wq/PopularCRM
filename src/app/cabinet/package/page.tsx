@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { format } from "date-fns";
 import { ru } from "date-fns/locale";
+import { CabinetLoading } from "@/components/CabinetLoading";
 
 type Package = {
   id: string;
@@ -38,7 +39,10 @@ export default function PackagePage() {
         </p>
       </div>
 
-      {packages.map((item) => (
+      {loading ? <CabinetLoading label="Загружаем абонемент…" /> : null}
+
+      {!loading
+        ? packages.map((item) => (
         <article key={item.id} className="glass p-5 sm:p-6">
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div>
@@ -75,7 +79,8 @@ export default function PackagePage() {
             </div>
           </dl>
         </article>
-      ))}
+      ))
+        : null}
 
       {!loading && !packages.length ? (
         <div className="glass p-6 text-fog">
@@ -83,7 +88,6 @@ export default function PackagePage() {
           возможно, её ещё не отметили.
         </div>
       ) : null}
-      {loading ? <p className="text-fog">Загрузка…</p> : null}
       {error ? <p className="text-danger">{error}</p> : null}
     </section>
   );
