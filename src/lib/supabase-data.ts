@@ -11,11 +11,14 @@ export function tenantIdOrDefault(tenantId?: string | null) {
 export async function findPersonByEmail(email: string, tenantId?: string) {
   const db = getAdminClient();
   const tid = tenantIdOrDefault(tenantId);
+  // Prefer the oldest account if duplicates exist (import vs accidental re-create).
   const { data, error } = await db
     .from("persons")
     .select("id, tenant_id, full_name, email, onboarding_status, is_minor, status")
     .eq("tenant_id", tid)
-    .eq("email", email.toLowerCase())
+    .ilike("email", email.trim())
+    .order("created_at", { ascending: true })
+    .limit(1)
     .maybeSingle();
   if (error) throw new Error(error.message);
   return data;
