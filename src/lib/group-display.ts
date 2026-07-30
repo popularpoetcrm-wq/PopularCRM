@@ -19,15 +19,30 @@ export function weekdayFull(wd: number) {
   return WEEKDAYS_FULL[((wd % 7) + 7) % 7] ?? "—";
 }
 
+/** Human direction labels — no slang like «актёрка». */
 export function directionLabel(d?: string | null) {
   const x = (d || "").toLowerCase();
-  if (x === "impro") return "импро";
-  if (x === "acting") return "актёрка";
-  if (x === "school") return "школа";
-  if (x === "kids") return "идея";
+  if (x === "impro") return "импровизация";
+  if (x === "acting") return "актёрское мастерство";
+  if (x === "school") return "воскресная школа";
+  if (x === "kids") return "детская студия";
   if (x === "show") return "спектакль";
   if (x === "playback") return "playback";
-  return d || null;
+  if (x === "other" || !x) return null;
+  return d;
+}
+
+export function groupStatusLabel(status?: string | null) {
+  return (status ?? "active") === "active" ? "активная" : "неактивная";
+}
+
+/** Person inside a group (enrollment). */
+export function enrollmentStatusLabel(status?: string | null) {
+  const s = status ?? "active";
+  if (s === "active") return "ходит";
+  if (s === "paused") return "на паузе";
+  if (s === "ended") return "не ходит";
+  return s;
 }
 
 export function formatTime(t?: string | null) {
@@ -51,17 +66,20 @@ export function formatRuleLine(rule: ScheduleRuleLike) {
 export function formatGroupCard(input: {
   title: string;
   direction?: string | null;
+  status?: string | null;
   rules?: ScheduleRuleLike[];
 }) {
   const dir = directionLabel(input.direction);
   const when =
     (input.rules ?? []).map(formatRuleLine).filter(Boolean).join(", ") || null;
+  const status = groupStatusLabel(input.status);
   return {
     title: input.title,
     direction: input.direction ?? null,
     direction_label: dir,
     schedule_label: when,
-    subtitle: [dir, when].filter(Boolean).join(" · ") || input.title,
+    status_label: status,
+    subtitle: [dir, when].filter(Boolean).join(" · ") || null,
   };
 }
 
@@ -78,5 +96,5 @@ export function moneyStatusLabel(input: {
     if (input.creditsLeft <= 1) return `Осталось ${input.creditsLeft} занятие`;
     return `Осталось ${input.creditsLeft} из пакета`;
   }
-  return "Оплат нет / пакет не активен";
+  return "Пакет не активен";
 }

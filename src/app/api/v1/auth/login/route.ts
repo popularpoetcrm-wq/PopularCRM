@@ -4,12 +4,14 @@ import { jsonError, jsonOk } from "@/lib/api";
 import { getDemoState, DEMO_TENANT_ID } from "@/lib/demo-store";
 import { getEnv, hasSupabase } from "@/lib/env";
 import { markActivatedOnLogin } from "@/lib/demo-onboarding";
+import { sendTelegramMessage } from "@/integrations/telegram";
 import {
   findPersonByEmail,
   getPersonRoles,
   issueMagicCode,
   tenantIdOrDefault,
 } from "@/lib/supabase-data";
+import { getAdminClient } from "@/lib/supabase/admin";
 
 const bodySchema = z.object({
   email: z.string().email(),
@@ -17,7 +19,7 @@ const bodySchema = z.object({
 
 export async function POST(req: Request) {
   const parsed = bodySchema.safeParse(await req.json());
-  if (!parsed.success) return jsonError("Invalid email");
+  if (!parsed.success) return jsonError("Неверный email");
 
   const email = parsed.data.email.toLowerCase();
 
@@ -37,7 +39,7 @@ export async function POST(req: Request) {
 
     const res = jsonOk({
       mode: "demo",
-      message: "Demo login: cookie set",
+      message: "Demo: вход без кода",
       personId: person.id,
       roles: person.roles,
       onboarding_status: person.onboarding_status ?? "complete",
@@ -67,26 +69,66 @@ export async function POST(req: Request) {
     const code = await issueMagicCode(email, person.tenant_id);
     const roles = await getPersonRoles(person.id);
 
+    const delivered: Array<"email" | "telegram"> = [];
+
     if (env.RESEND_API_KEY) {
-      const { Resend } = await import("resend");
-      const resend = new Resend(env.RESEND_API_KEY);
-      await resend.emails.send({
-        from: env.EMAIL_FROM!,
-        to: email,
-        subject: "Kod logowania — Studio CRM",
-        text: `Twój kod: ${code}`,
-      });
+      try {
+        const { Resend } = await import("resend");
+        const resend = new Resend(env.RESEND_API_KEY);
+        await resend.emails.send({
+          from: env.EMAIL_FROM!,
+          to: email,
+          subject: "Код входа — Popular Poet",
+          text: `Твой код входа: ${code}\n\nДействует 15 минут. Если ты не запрашивал вход — просто проигнорируй.`,
+        });
+        delivered.push("email");
+      } catch (e) {
+        console.error("[auth/login] email send failed", e);
+      }
     }
+
+    const db = getAdminClient();
+    const { data: tg } = await db
+      .from("telegram_identities")
+      .select("chat_id")
+      .eq("person_id", person.id)
+      .maybeSingle();
+    if (tg?.chat_id && env.TELEGRAM_BOT_TOKEN) {
+      try {
+        await sendTelegramMessage({
+          chatId: tg.chat_id as number,
+          text:
+            `Код входа в кабинет: ${code}\n` +
+            `Действует 15 минут. Никому не пересылай.`,
+        });
+        delivered.push("telegram");
+      } catch (e) {
+        console.error("[auth/login] telegram send failed", e);
+      }
+    }
+
+    const channels =
+      delivered.length === 0
+        ? null
+        : delivered.includes("email") && delivered.includes("telegram")
+          ? "email и Telegram"
+          : delivered.includes("email")
+            ? "email"
+            : "Telegram";
+
+    const message = channels
+      ? `Код из 6 цифр отправлен в ${channels}. Введи его ниже.`
+      : "Не удалось отправить код (нет Resend и Telegram). Попроси админа настроить почту или привяжи бота.";
 
     return jsonOk({
       mode: "magic",
-      message: env.RESEND_API_KEY
-        ? "Kod wysłany na email."
-        : "Kod zapisany в БД (Resend нет — смотри debugCode).",
+      message,
+      delivered,
       personId: person.id,
       roles,
       onboarding_status: person.onboarding_status ?? "complete",
-      debugCode: env.RESEND_API_KEY ? undefined : code,
+      // Only for local/dev when nothing was delivered — UI must NOT autofill
+      debugCode: delivered.length ? undefined : code,
     });
   } catch (e) {
     return jsonError(e instanceof Error ? e.message : "login fail", 500);

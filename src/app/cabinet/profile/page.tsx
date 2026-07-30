@@ -65,7 +65,7 @@ export default function ProfilePage() {
       setMessage(json.error ?? "Ошибка");
       return;
     }
-    const p = json.data.person as Person;
+    const p = json.data.person as Person & { avatar_url?: string | null };
     setPerson(p);
     setChildren(json.data.children ?? []);
     setParents(json.data.parents ?? []);
@@ -79,7 +79,8 @@ export default function ProfilePage() {
       telegram_username: (p.telegram_username ?? "").replace(/^@/, ""),
     });
     const avJson = await av.json();
-    if (avJson.ok) setAvatarUrl(avJson.data.url);
+    const fromApi = avJson.ok ? avJson.data.url : null;
+    setAvatarUrl(fromApi ?? p.avatar_url ?? null);
     const cJson = await cons.json();
     if (cJson.ok) {
       const docs = cJson.data.docs as Array<{

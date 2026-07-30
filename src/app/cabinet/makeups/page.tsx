@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { format } from "date-fns";
-import { pl } from "date-fns/locale";
+import { ru } from "date-fns/locale";
 import { STUDIO_POLICY } from "@/lib/studio-policy";
 
 type Makeup = {
@@ -56,7 +56,7 @@ export default function MakeupsPage() {
       json.ok
         ? json.data.creditStatus === "burned"
           ? "Отмена после cutoff — отработка сгорела."
-          : "Бронь отменена, отработка снова available."
+          : "Бронь отменена, отработка снова доступна."
         : json.error,
     );
     await load();
@@ -67,7 +67,7 @@ export default function MakeupsPage() {
       <div>
         <h1 className="font-display text-3xl">Отработки</h1>
         <p className="text-fog">
-          Cutoff {STUDIO_POLICY.makeupCutoffHours} ч · нет мест = отказ · один makeup = одна бронь
+          Cutoff {STUDIO_POLICY.makeupCutoffHours} ч · нет мест = отказ · одна отработка = одна бронь
         </p>
       </div>
       {message ? <p className="text-sm text-stage-deep">{message}</p> : null}
@@ -79,8 +79,8 @@ export default function MakeupsPage() {
               <div>
                 <p className="font-semibold">{m.id}</p>
                 <p className="text-sm text-fog">
-                  до {format(new Date(m.valid_until), "d MMM yyyy", { locale: pl })}
-                  {m.target_session_id ? ` · session ${m.target_session_id}` : ""}
+                  до {format(new Date(m.valid_until), "d MMM yyyy", { locale: ru })}
+                  {m.target_session_id ? ` · занятие ${m.target_session_id.slice(0, 8)}` : ""}
                 </p>
               </div>
               <span
@@ -108,7 +108,7 @@ export default function MakeupsPage() {
                   {sessions.map((s) => (
                     <option key={s.id} value={s.id}>
                       {s.title} ·{" "}
-                      {format(new Date(s.starts_at), "d MMM HH:mm", { locale: pl })}
+                      {format(new Date(s.starts_at), "d MMM HH:mm", { locale: ru })}
                     </option>
                   ))}
                 </select>
@@ -127,7 +127,7 @@ export default function MakeupsPage() {
         ))}
         {!makeups.length ? (
           <div className="glass p-8 text-center text-fog">
-            Нет отработок. Отметь absent в админке — появится makeup.
+            Нет отработок. Если отметишься «не приду» — отработка появится здесь.
           </div>
         ) : null}
       </div>

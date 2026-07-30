@@ -45,27 +45,48 @@ WEEKDAY_RU = {
     6: "Суббота",
 }
 
+DIRECTION_CODE = {
+    "impro": "impro",
+    "импро": "impro",
+    "импроверты": "impro",
+    "acting": "acting",
+    "актёрка": "acting",
+    "актерка": "acting",
+    "актёр": "acting",
+    "актер": "acting",
+    "show": "show",
+    "спектакль": "show",
+    "спектакл": "show",
+    "playback": "playback",
+    "play-back": "playback",
+    "sunday_school": "school",
+    "воскресная школа": "school",
+}
+
 DIRECTION_RU = {
     "impro": "Импровизация",
-    "импро": "Импровизация",
-    "импроверты": "Импровизация",
     "acting": "Актёрское мастерство",
-    "актёрка": "Актёрское мастерство",
-    "актерка": "Актёрское мастерство",
-    "актёр": "Актёрское мастерство",
-    "актер": "Актёрское мастерство",
     "show": "Спектакль",
-    "спектакль": "Спектакль",
-    "спектакл": "Спектакль",
     "playback": "Play-back",
-    "play-back": "Play-back",
-    "sunday_school": "Воскресная школа",
-    "воскресная школа": "Воскресная школа",
+    "school": "Воскресная школа",
+    "kids": "Детская студия",
 }
 
 
 def uid(*parts: str) -> str:
     return str(uuid.uuid5(NS, ":".join(parts)))
+
+
+def name_key(raw: object) -> str | None:
+    """Stable identity key — keeps emoji so «Маша👩🏽» ≠ «Маша»."""
+    if raw is None:
+        return None
+    s = str(raw).strip()
+    if not s:
+        return None
+    s = re.sub(r"\$+$", "", s).strip()
+    s = re.sub(r"\s+", " ", s)
+    return s.casefold() if s else None
 
 
 def clean_name(raw: object) -> str | None:
@@ -76,9 +97,39 @@ def clean_name(raw: object) -> str | None:
         return None
     # trailing $ = paid marker on name in some rows
     s = re.sub(r"\$+$", "", s).strip()
+    # strip emoji / variation selectors / dingbats (display only)
+    s = re.sub(
+        r"[\U0001F200-\U0001FAFF\U00002700-\U000027BF\U0001F1E0-\U0001F1FF"
+        r"\U0000FE0F\U0000200D\U00002600-\U000026FF]+",
+        "",
+        s,
+    ).strip()
+    s = re.sub(r"\s+", " ", s)
+    # leftover symbols like ^-^
+    s = re.sub(r"[\^~]+", "", s).strip()
     if not s:
         return None
     return s
+
+
+def unique_display_name(base: str, existing: set[str]) -> str:
+    if base not in existing:
+        return base
+    n = 2
+    while f"{base} ({n})" in existing:
+        n += 1
+    return f"{base} ({n})"
+
+
+def row_has_journal_marks(row: tuple, date_start_col: int = 4) -> bool:
+    """True if any date-column cell has a mark (not just empty)."""
+    for cell in row[date_start_col:]:
+        if cell is None or cell == "":
+            continue
+        if isinstance(cell, (datetime, date)):
+            continue
+        return True
+    return False
 
 
 def as_date(v: object) -> str | None:
@@ -148,9 +199,9 @@ def detect_has_size_col(ws) -> bool:
 
 def normalize_direction(raw: str | None, sheet_name: str = "") -> str | None:
     blob = f"{raw or ''} {sheet_name}".lower()
-    for key, label in DIRECTION_RU.items():
+    for key, code in DIRECTION_CODE.items():
         if key in blob:
-            return label
+            return code
     if raw and raw.strip() and not re.fullmatch(r"[\d:.\-\s–]+", raw.strip()):
         # drop weekday-only headers like "Понедельник", "Пятница", "Суббота"
         if raw.strip().lower() in {v.lower() for v in WEEKDAY_RU.values()} | {
@@ -164,7 +215,7 @@ def normalize_direction(raw: str | None, sheet_name: str = "") -> str | None:
             "четверг импро",
         }:
             return None
-        return raw.strip()
+        return "other"
     return None
 
 
@@ -334,9 +385,20 @@ def group_title(brand: str, sheet: str, header_a1: object, sched: dict) -> str:
                 if not re.search(r"\d", header):
                     nickname = header
 
-    label = direction
-    if nickname and nickname != direction:
-        label = f"{direction} · {nickname}" if direction else nickname
+    label = DIRECTION_RU.get(direction or "", direction)
+    if nickname and nickname != label and nickname.lower() not in {
+        "импро",
+        "импровизация",
+        "актёрка",
+        "актерка",
+        "четверг импро",
+    }:
+        if "импроверт" in nickname.lower():
+            label = f"{label} · Импроверты" if label else "Импроверты"
+        elif label and len(nickname) < 40 and not re.search(r"\d", nickname):
+            label = f"{label} · {nickname}"
+        elif not label:
+            label = nickname
 
     if label and head:
         return f"{head} — {label}"
@@ -387,25 +449,73 @@ def parse_workbook(
             sheet_has_size = False
 
         # poet: A=name B=size C=price D=birthday  OR  A=name B=price C=birthday
+        # Blank row(s) after the first block → people below are inactive («не ходят»).
+        enrollment_status = "active"
+        saw_person = False
         for row in ws.iter_rows(min_row=2, values_only=True):
-            name = clean_name(row[0] if row else None)
+            raw0 = row[0] if row else None
+            name = clean_name(raw0)
             if not name:
+                if saw_person:
+                    enrollment_status = "ended"
                 continue
+
+            # Section headers / noise
+            if name.casefold() in {
+                "майки",
+                "майка",
+                "футболки",
+                "размер",
+                "имена",
+                "ученики",
+            }:
+                enrollment_status = "ended"
+                continue
+
             if sheet_has_size:
                 size = as_size(row[1] if len(row) > 1 else None)
                 price = as_price(row[2] if len(row) > 2 else None)
                 bday = as_date(row[3] if len(row) > 3 else None)
+                # Inventory block under «Майки»: name + number in B, no price/birthday
+                b_num = as_price(row[1] if len(row) > 1 else None)
+                if (
+                    size is None
+                    and price is None
+                    and bday is None
+                    and b_num is not None
+                    and b_num <= 100
+                ):
+                    continue
+                date_col = 4
             else:
                 size = None
                 price = as_price(row[1] if len(row) > 1 else None)
                 bday = as_date(row[2] if len(row) > 2 else None)
+                date_col = 3
 
-            # stable person key within brand by display name
-            pid = uid("person", brand, name.casefold())
+            # After the gap: bare name duplicates without price/marks = notes, not people
+            if (
+                enrollment_status == "ended"
+                and size is None
+                and price is None
+                and bday is None
+                and not row_has_journal_marks(row, date_col)
+            ):
+                continue
+
+            saw_person = True
+
+            key = name_key(raw0)
+            if not key:
+                continue
+            display = clean_name(raw0) or key
+            # stable person key within brand (emoji kept in key)
+            pid = uid("person", brand, key)
             if pid not in persons:
+                existing_names = {p["full_name"] for p in persons.values()}
                 persons[pid] = {
                     "id": pid,
-                    "full_name": name,
+                    "full_name": unique_display_name(display, existing_names),
                     "birth_date": bday,
                     "tshirt_size": size,
                     "is_minor": is_minor,
@@ -413,28 +523,39 @@ def parse_workbook(
                     "source": path.name,
                 }
             else:
-                # fill missing attrs from later rows; never keep numeric "sizes"
+                # fill missing attrs; for active block prefer this sheet's size/bday
                 p = persons[pid]
                 if p.get("tshirt_size") and not as_size(p["tshirt_size"]):
                     p["tshirt_size"] = None
-                if not p.get("birth_date") and bday:
+                if bday and (not p.get("birth_date") or enrollment_status == "active"):
                     p["birth_date"] = bday
-                if not p.get("tshirt_size") and size:
+                if size and (not p.get("tshirt_size") or enrollment_status == "active"):
                     p["tshirt_size"] = size
 
-            eid = uid("enroll", brand, sheet_name, name.casefold())
+            eid = uid("enroll", brand, sheet_name, key)
             # one enrollment per person/group (sheet may list same name twice)
-            if not any(x["id"] == eid for x in enrollments):
+            existing = next((x for x in enrollments if x["id"] == eid), None)
+            if not existing:
                 enrollments.append(
                     {
                         "id": eid,
                         "student_person_id": pid,
                         "group_id": gid,
                         "brand_id": brand,
+                        "status": enrollment_status,
                         "price_hint": price,
                         "tags": [f"price:{int(price)}"] if price else [],
                     }
                 )
+            else:
+                # Prefer active if listed in the top block later/earlier
+                if existing.get("status") != "active" and enrollment_status == "active":
+                    existing["status"] = "active"
+                if price and not existing.get("price_hint"):
+                    existing["price_hint"] = price
+                    existing["tags"] = [f"price:{int(price)}"]
+
+    apply_sheet_fixes(groups, brand)
 
     return {
         "brand": brand,
@@ -443,6 +564,68 @@ def parse_workbook(
         "persons": list(persons.values()),
         "enrollments": enrollments,
     }
+
+
+def apply_sheet_fixes(groups: list[dict], brand: str) -> None:
+    if brand != "poet":
+        for g in groups:
+            g["direction"] = g.get("direction") or "kids"
+            g["schedule"]["direction"] = g["direction"]
+        return
+
+    sheet_fixes = {
+        "вс 1230-1430": {
+            "direction": "impro",
+            "title": "Воскресенье 12:30–14:30 — Импровизация",
+        },
+        "play-back": {"direction": "playback", "title": "Play-back"},
+        "чт 2000-2200": {
+            "direction": "acting",
+            "title": "Четверг 20:00–22:00 — Актёрское мастерство",
+        },
+        "пн 1830-2030": {
+            "direction": "impro",
+            "title": "Понедельник 18:30–20:30 — Импровизация",
+        },
+        "сб 1700-1900": {
+            "direction": "acting",
+            "title": "Суббота 17:00–19:00 — Актёрское мастерство",
+        },
+        "пт 1900-2100": {
+            "direction": "acting",
+            "title": "Пятница 19:00–21:00 — Актёрское мастерство",
+        },
+        "вс 1800-2000": {
+            "direction": "show",
+            "title": "Воскресенье 18:00–20:00 — Спектакль",
+        },
+        "воскресная школа": {
+            "direction": "school",
+            "title": "Воскресенье — Воскресная школа",
+        },
+        "вт 1800-2000": {
+            "direction": "impro",
+            "title": "Вторник 18:00–20:00 — Импровизация · Импроверты",
+        },
+    }
+    for g in groups:
+        sheet = g["source_sheet"].lower()
+        fix = sheet_fixes.get(sheet)
+        if fix:
+            g["direction"] = fix["direction"]
+            g["schedule"]["direction"] = fix["direction"]
+            if fix.get("title"):
+                g["title"] = fix["title"]
+            if "воскресная" in sheet:
+                g["schedule"]["weekday"] = 0
+        elif "воскресная" in sheet:
+            g["direction"] = "school"
+            g["schedule"]["direction"] = "school"
+            g["schedule"]["weekday"] = 0
+            g["title"] = "Воскресенье — Воскресная школа"
+        elif not g.get("direction"):
+            # fallback from already-normalized schedule
+            g["direction"] = (g.get("schedule") or {}).get("direction")
 
 
 def main() -> None:
@@ -456,9 +639,8 @@ def main() -> None:
         "poet",
         has_size_col=True,
         is_minor=False,
-        skip={"абонемент"},  # keep Воскресная школа + Play-back as poet groups
+        skip={"абонемент"},
     )
-    # kids workbook has no size column
     kids = parse_workbook(
         idea_path,
         "kids",
@@ -466,19 +648,11 @@ def main() -> None:
         is_minor=True,
     )
 
-    # Воскресная школа — детский формат в книге поэта
-    for g in poet["groups"]:
-        if "воскресная" in g["source_sheet"].lower():
-            g["direction"] = "Воскресная школа"
-            g["title"] = "Воскресенье — Воскресная школа"
-            g["schedule"]["weekday"] = 0
-            g["schedule"]["direction"] = "Воскресная школа"
-
     out = {
         "tenant_id": TENANT,
         "plan_id": PLAN_ID,
         "phase": 1,
-        "note": "Phase 1: groups + persons + enrollments. No emails yet. Attendance/payments later.",
+        "note": "Phase 1: groups + persons + enrollments. Blank-row gap → ended. Attendance/payments later.",
         "brands": {
             "poet": "Популярный поэт (взрослые)",
             "kids": "Идея (детские)",
@@ -492,6 +666,10 @@ def main() -> None:
             "kids_groups": len(kids["groups"]),
             "kids_persons": len(kids["persons"]),
             "kids_enrollments": len(kids["enrollments"]),
+            "poet_active": sum(1 for e in poet["enrollments"] if e.get("status") == "active"),
+            "poet_ended": sum(1 for e in poet["enrollments"] if e.get("status") == "ended"),
+            "kids_active": sum(1 for e in kids["enrollments"] if e.get("status") == "active"),
+            "kids_ended": sum(1 for e in kids["enrollments"] if e.get("status") == "ended"),
         },
     }
     out_path = ROOT / "scripts" / "data" / "real-tables-phase1.json"

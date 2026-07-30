@@ -18,6 +18,7 @@ from parse_real_tables import (  # noqa: E402
     TENANT,
     clean_name,
     detect_has_size_col,
+    name_key,
     parse_schedule,
     parse_workbook,
     uid,
@@ -133,7 +134,7 @@ def parse_attendance_workbook(
             name = clean_name(row[0] if row else None)
             if not name:
                 continue
-            pid = uid("person", brand, name.casefold())
+            pid = uid("person", brand, name_key(row[0]) or name.casefold())
             eid_key = (group["id"], pid)
             enr = enroll_by_key.get(eid_key)
             if not enr:

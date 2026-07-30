@@ -93,27 +93,31 @@ def direction_key(title: str, sheet: str) -> str:
 
 
 def parse_sheet(ws, *, brand: str, sheet_name: str, path_name: str) -> list[dict]:
+    from parse_real_tables import name_key, clean_name
+
     has_size = False if brand == "kids" else detect_has_size_col(ws)
     out: list[dict] = []
     for row in ws.iter_rows(min_row=2, values_only=True):
         raw = row[0] if row else None
-        if raw is None or str(raw).strip() == "":
+        key = name_key(raw)
+        if not key:
             continue
-        raw_s = str(raw).strip()
-        # skip header leftovers
-        if raw_s.lower() in {"импро", "имя", "name"}:
-            continue
-        name_paid = raw_s.endswith("$")
-        name = re.sub(r"\$+$", "", raw_s).strip()
-        if not name:
+        display = clean_name(raw) or key
+        if display.casefold() in {"майки", "майка", "футболки", "импро", "имя", "name"}:
             continue
 
         if has_size:
             price = as_price(row[2] if len(row) > 2 else None)
+            b_num = as_price(row[1] if len(row) > 1 else None)
+            if price is None and b_num is not None and b_num <= 100 and not as_size(row[1]):
+                continue
             date_start = 4
         else:
             price = as_price(row[1] if len(row) > 1 else None)
             date_start = 3
+
+        raw_s = str(raw).strip()
+        name_paid = raw_s.endswith("$")
 
         cycles = 0
         for cell in row[date_start:]:
@@ -126,13 +130,15 @@ def parse_sheet(ws, *, brand: str, sheet_name: str, path_name: str) -> list[dict
             continue
 
         price = price or 0.0
-        pid = uid("person", brand, name.casefold())
+        pid = uid("person", brand, key)
         gid = uid("group", brand, sheet_name)
-        eid = uid("enroll", brand, sheet_name, name.casefold())
+        eid = uid("enroll", brand, sheet_name, key)
         paid_amount = round(price * cycles, 2) if cycles else 0.0
-        due_amount = round(price, 2) if cycles == 0 and price else round(price * max(cycles, 1), 2)
-        # If paid cycles exist: one paid invoice for historical LTV.
-        # If none: pending debt for one cycle.
+        due_amount = (
+            round(price, 2)
+            if cycles == 0 and price
+            else round(price * max(cycles, 1), 2)
+        )
         if cycles > 0:
             status = "paid"
             amount = paid_amount
@@ -144,10 +150,10 @@ def parse_sheet(ws, *, brand: str, sheet_name: str, path_name: str) -> list[dict
 
         out.append(
             {
-                "id": uid("payment", brand, sheet_name, name.casefold()),
+                "id": uid("payment", brand, sheet_name, key),
                 "tenant_id": TENANT,
                 "provider": "other",
-                "provider_session_id": f"import:{brand}:{sheet_name}:{name.casefold()}",
+                "provider_session_id": f"import:{brand}:{sheet_name}:{key}",
                 "payer_person_id": pid,
                 "enrollment_id": eid,
                 "student_person_id": pid,
@@ -158,13 +164,13 @@ def parse_sheet(ws, *, brand: str, sheet_name: str, path_name: str) -> list[dict
                 "status": status,
                 "payment_method": "cash",
                 "description": (
-                    f"import {path_name}/{sheet_name} · {name} · "
+                    f"import {path_name}/{sheet_name} · {display} · "
                     f"price={price:g} · cycles={cycles}"
                 ),
                 "price_hint": price,
                 "cycles": cycles,
                 "name_paid_marker": name_paid,
-                "full_name": name,
+                "full_name": display,
                 "brand_id": brand,
                 "source_sheet": sheet_name,
                 "direction": direction_key(sheet_name, sheet_name),

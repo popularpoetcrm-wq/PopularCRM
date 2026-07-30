@@ -17,7 +17,7 @@ export async function generateMetadata(): Promise<Metadata> {
   const brand = await getRequestBrand();
   return {
     title: `${brand.name} · CRM`,
-    description: `${brand.tagline} — panel, płatności, odrobienia, faktury`,
+    description: `${brand.tagline} — кабинет, оплаты, отработки, счета`,
   };
 }
 

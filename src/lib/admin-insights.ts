@@ -1,4 +1,5 @@
 import type { BrandId } from "@/lib/brands";
+import { directionLabel as directionLabelShared } from "@/lib/group-display";
 import { getAdminClient } from "@/lib/supabase/admin";
 
 export type InsightPerson = {
@@ -44,14 +45,7 @@ export type AdminInsights = {
 };
 
 function directionLabel(d: string | null | undefined) {
-  const x = (d || "other").toLowerCase();
-  if (x === "impro") return "импро";
-  if (x === "acting") return "актёрка";
-  if (x === "school") return "школа";
-  if (x === "kids") return "идея";
-  if (x === "show") return "спектакль";
-  if (x === "playback") return "playback";
-  return x;
+  return directionLabelShared(d) ?? (d || "другое");
 }
 
 function chunk<T>(arr: T[], size: number) {
@@ -288,7 +282,7 @@ export async function loadAdminInsightsDb(
   }
   const directions = [...dirCounts.entries()]
     .map(([direction, v]) => ({
-      direction,
+      direction: directionLabel(direction),
       students: v.students.size,
       enrollments: v.enrollments,
     }))
@@ -343,7 +337,7 @@ export async function loadAdminInsightsDb(
     .map((s) =>
       toPerson(
         s,
-        `${s.present} present · предложи актёрку (cross-sell)`,
+        `${s.present} посещений · предложи актёрское мастерство`,
       ),
     );
 
@@ -364,8 +358,8 @@ export async function loadAdminInsightsDb(
         present_rate,
         reason:
           roster < 4
-            ? `ростер ${roster} — донабор или слияние`
-            : `ростер ${roster}`,
+            ? `в группе ${roster} — донабор или объединение`
+            : `в группе ${roster}`,
       };
     })
     .filter((g) => g.roster < 4)
@@ -375,9 +369,9 @@ export async function loadAdminInsightsDb(
   if (cross_sell.length) {
     advice.push({
       id: "cross-sell-impro-acting",
-      title: "Cross-sell: импро → актёрка",
+      title: "Импровизация → актёрское мастерство",
       detail:
-        "Есть present ≥8, нет актёрки, без долга — мягко предложить второй трек.",
+        "Хорошая посещаемость на импро, ещё нет актёрского мастерства, без долга — мягко предложить второй трек.",
       count: cross_sell.length,
     });
   }
@@ -385,15 +379,15 @@ export async function loadAdminInsightsDb(
     advice.push({
       id: "churn-risk",
       title: "Риск тихого ухода",
-      detail: "present% <50% при ≥5 отметках — созвон / пауза / смена слота.",
+      detail: "посещаемость <50% при ≥5 отметках — созвон / пауза / смена слота.",
       count: risk.length,
     });
   }
   if (thin_groups.length) {
     advice.push({
       id: "thin-groups",
-      title: "Тонкие группы",
-      detail: "Ростер <4 — риск отмены. Донабор или слияние слотов.",
+      title: "Маленькие группы",
+      detail: "Меньше 4 человек — риск отмены. Донабор или объединение.",
       count: thin_groups.length,
     });
   }
@@ -401,7 +395,7 @@ export async function loadAdminInsightsDb(
     advice.push({
       id: "open-debt",
       title: "Открытые долги",
-      detail: `Сумма ${Math.round(debt_open)} PLN у ${debtorIds.size} чел. — сначала касса, потом апсейл.`,
+      detail: `Сумма ${Math.round(debt_open)} PLN у ${debtorIds.size} чел. — сначала касса, потом предложения.`,
       count: debtorIds.size,
     });
   }
@@ -413,7 +407,7 @@ export async function loadAdminInsightsDb(
       id: "loyal-upsell",
       title: "Лояльные на одном направлении",
       detail:
-        "≥80% present на одной группе — кандидаты на пакет / второй слот (upsell).",
+        "≥80% посещаемости на одной группе — кандидаты на пакет или второй слот.",
       count: loyal.length,
     });
   }

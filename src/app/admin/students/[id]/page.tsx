@@ -135,8 +135,18 @@ export default function StudentCardPage() {
 
   return (
     <section className="space-y-5">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
+      <div className="flex flex-wrap items-start gap-4">
+        <div className="h-20 w-20 shrink-0 overflow-hidden rounded-full bg-white/10 ring-2 ring-white/15">
+          {p.avatar_url ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={p.avatar_url} alt="" className="h-full w-full object-cover" />
+          ) : (
+            <span className="flex h-full items-center justify-center text-2xl text-fog">
+              {p.full_name.slice(0, 1)}
+            </span>
+          )}
+        </div>
+        <div className="min-w-0 flex-1">
           <Link href="/admin/students" className="text-sm text-fog underline">
             ← Ученики
           </Link>
@@ -147,17 +157,7 @@ export default function StudentCardPage() {
               .join(" · ") || "Нет контактов"}
             {p.is_minor ? " · ребёнок" : ""}
           </p>
-        </div>
-        <div className="flex flex-wrap items-center gap-3">
-          {"avatar_url" in p && (p as { avatar_url?: string }).avatar_url ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={(p as { avatar_url?: string }).avatar_url}
-              alt=""
-              className="h-16 w-16 rounded-full object-cover"
-            />
-          ) : null}
-          <div className="flex flex-wrap gap-2">
+          <div className="mt-2 flex flex-wrap gap-2">
             <span className="badge">{p.onboarding_status ?? "draft"}</span>
             <span className={`badge ${p.telegram_linked ? "badge-ok" : "badge-warn"}`}>
               TG {p.telegram_linked ? "ok" : "—"}
@@ -231,38 +231,47 @@ export default function StudentCardPage() {
 
       <div className="glass p-4">
         <p className="text-xs uppercase tracking-wide text-fog">Посещаемость</p>
-        <p className="mt-1 text-xs text-fog">
-          Сводка по отметкам в базе (легенда Excel уточнит спецметки позже).
-        </p>
-        {card.attendance_summary ? (
-          <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-5">
-            <div>
-              <p className="text-2xl font-semibold">{card.attendance_summary.present}</p>
-              <p className="text-xs text-fog">Был</p>
+        {card.attendance_summary && card.attendance_summary.total > 0 ? (
+          <>
+            <p className="mt-2 text-3xl font-semibold">
+              {Math.round(
+                (card.attendance_summary.present / Math.max(1, card.attendance_summary.total - card.attendance_summary.cancelled_by_studio)) *
+                  100,
+              )}
+              %
+              <span className="ml-2 text-base font-normal text-fog">
+                был на занятии
+              </span>
+            </p>
+            <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-5">
+              <div>
+                <p className="text-2xl font-semibold">{card.attendance_summary.present}</p>
+                <p className="text-xs text-fog">Был</p>
+              </div>
+              <div>
+                <p className="text-2xl font-semibold">
+                  {card.attendance_summary.absent_notified}
+                </p>
+                <p className="text-xs text-fog">Предупредил</p>
+              </div>
+              <div>
+                <p className="text-2xl font-semibold">{card.attendance_summary.absent}</p>
+                <p className="text-xs text-fog">Не был</p>
+              </div>
+              <div>
+                <p className="text-2xl font-semibold">{card.attendance_summary.makeup}</p>
+                <p className="text-xs text-fog">Отработка</p>
+              </div>
+              <div>
+                <p className="text-2xl font-semibold">{card.attendance_summary.total}</p>
+                <p className="text-xs text-fog">Всего отметок</p>
+              </div>
             </div>
-            <div>
-              <p className="text-2xl font-semibold">
-                {card.attendance_summary.absent_notified}
-              </p>
-              <p className="text-xs text-fog">Предупредил</p>
-            </div>
-            <div>
-              <p className="text-2xl font-semibold">{card.attendance_summary.absent}</p>
-              <p className="text-xs text-fog">Не был</p>
-            </div>
-            <div>
-              <p className="text-2xl font-semibold">{card.attendance_summary.makeup}</p>
-              <p className="text-xs text-fog">Отработка</p>
-            </div>
-            <div>
-              <p className="text-2xl font-semibold">{card.attendance_summary.total}</p>
-              <p className="text-xs text-fog">Всего отметок</p>
-            </div>
-          </div>
-        ) : null}
-        {!card.attendance.length ? (
-          <p className="mt-3 text-fog">Пока нет отметок</p>
+          </>
         ) : (
+          <p className="mt-2 text-fog">Пока нет отметок</p>
+        )}
+        {card.attendance.length ? (
           <ul className="mt-4 max-h-64 divide-y divide-white/10 overflow-y-auto">
             {card.attendance.map((a, i) => (
               <li
@@ -282,7 +291,7 @@ export default function StudentCardPage() {
               </li>
             ))}
           </ul>
-        )}
+        ) : null}
       </div>
 
       {card.parents?.length ? (

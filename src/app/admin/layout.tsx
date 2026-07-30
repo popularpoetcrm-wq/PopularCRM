@@ -49,7 +49,7 @@ export default async function AdminLayout({
           </div>
           {!teacher ? <BrandTabs active={tab} /> : null}
         </div>
-        <nav className="glass flex flex-wrap gap-1 px-2 py-2 text-sm">
+        <nav className="glass admin-nav-scroll px-2 py-2 text-sm">
           {links.map((l) => (
             <Link key={l.href} href={l.href} className="nav-link">
               {l.label}
@@ -57,9 +57,6 @@ export default async function AdminLayout({
           ))}
           <Link href="/cabinet" className="nav-link">
             ЛК
-          </Link>
-          <Link href="/kids" className="nav-link">
-            /kids
           </Link>
         </nav>
       </header>

@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { format } from "date-fns";
-import { pl } from "date-fns/locale";
+import { ru } from "date-fns/locale";
 import { STUDIO_POLICY } from "@/lib/studio-policy";
 
 type Dash = {
@@ -28,6 +28,12 @@ type Dash = {
     last_paid_at?: string | null;
     last_paid_amount?: number | null;
   };
+  attendance_note?: {
+    message: string;
+    present: number;
+    total: number;
+    rate: number;
+  } | null;
 };
 
 export default function CabinetHome() {
@@ -138,7 +144,7 @@ export default function CabinetHome() {
           <p className="text-xs font-bold uppercase tracking-[0.14em] text-fog">Ближайшее занятие</p>
           <h2 className="mt-2 font-display text-2xl sm:text-3xl">{next.title}</h2>
           <p className="mt-1 text-fog">
-            {format(new Date(next.starts_at), "EEEE, d MMMM · HH:mm", { locale: pl })}
+            {format(new Date(next.starts_at), "EEEE, d MMMM · HH:mm", { locale: ru })}
           </p>
 
           <div className="mt-5 grid gap-3 sm:grid-cols-2">
@@ -176,6 +182,15 @@ export default function CabinetHome() {
         </section>
       ) : null}
 
+      {data.attendance_note ? (
+        <section className="glass p-5">
+          <p className="text-xs font-bold uppercase tracking-[0.14em] text-fog">
+            Посещаемость
+          </p>
+          <p className="mt-2 text-base leading-relaxed">{data.attendance_note.message}</p>
+        </section>
+      ) : null}
+
       <div className="grid gap-3 sm:grid-cols-2">
         <Link href="/cabinet/package" className="glass block p-5 transition hover:bg-white/10">
           <p className="text-sm text-fog">Пакет</p>
@@ -192,24 +207,24 @@ export default function CabinetHome() {
           <p className="mt-1 text-xs text-fog">осталось занятий</p>
         </Link>
         <Link href="/cabinet/payments" className="glass block p-5 transition hover:bg-white/10">
-          <p className="text-sm text-fog">Деньги</p>
+          <p className="text-sm text-fog">Оплата</p>
           <p className="mt-2 text-xl font-semibold">
             {data.money?.debt_open ? (
               <span className="text-warn">{data.money.debt_open} PLN</span>
             ) : (
-              <span className="text-ok">ок</span>
+              <span className="text-ok">всё ок</span>
             )}
           </p>
           <p className="mt-1 text-xs text-fog">{data.money?.label ?? (debt ? "есть долг" : "всё оплачено")}</p>
         </Link>
       </div>
 
-      <nav className="glass grid grid-cols-2 gap-2 p-3 sm:grid-cols-4">
+      <nav className="grid grid-cols-2 gap-2">
         {[
-          { href: "/cabinet/schedule", label: "Расписание" },
-          { href: "/cabinet/invoices", label: "Фактуры" },
-          { href: "/cabinet/inbox", label: "Входящие" },
-          { href: "/cabinet/profile", label: "Профиль" },
+          { href: "/cabinet/makeups", label: "Отработки" },
+          { href: "/cabinet/consents", label: "Согласия" },
+          { href: "/cabinet/invoices", label: "Счета" },
+          { href: "/cabinet/profile", label: "Профиль и фото" },
         ].map((l) => (
           <Link key={l.href} href={l.href} className="btn btn-ghost w-full text-sm">
             {l.label}

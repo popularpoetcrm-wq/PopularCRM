@@ -2,7 +2,7 @@ import { z } from "zod";
 import { jsonError, jsonOk } from "@/lib/api";
 import { getSessionUser, isStaff } from "@/lib/auth";
 import { hasSupabase } from "@/lib/env";
-import { moveEnrollmentDb } from "@/lib/supabase-data";
+import { moveEnrollmentDb, setEnrollmentStatusDb } from "@/lib/supabase-data";
 import { moveDemoEnrollment } from "@/lib/demo-ops";
 
 const moveSchema = z.object({
@@ -11,12 +11,39 @@ const moveSchema = z.object({
   to_group_id: z.string().min(1),
 });
 
+const statusSchema = z.object({
+  action: z.literal("set_status"),
+  enrollment_id: z.string().min(1),
+  status: z.enum(["active", "paused", "ended"]),
+});
+
 export async function PATCH(req: Request) {
   const user = await getSessionUser();
   if (!user || !isStaff(user.roles)) return jsonError("Forbidden", 403);
 
-  const parsed = moveSchema.safeParse(await req.json());
-  if (!parsed.success) return jsonError("Invalid payload");
+  const body = await req.json().catch(() => ({}));
+
+  if (body?.action === "set_status") {
+    const parsed = statusSchema.safeParse(body);
+    if (!parsed.success) return jsonError("Неверные данные");
+    if (!(hasSupabase() && user.mode === "supabase")) {
+      return jsonError("Нужен режим Supabase", 501);
+    }
+    try {
+      return jsonOk(
+        await setEnrollmentStatusDb({
+          enrollmentId: parsed.data.enrollment_id,
+          tenantId: user.tenantId,
+          status: parsed.data.status,
+        }),
+      );
+    } catch (e) {
+      return jsonError(e instanceof Error ? e.message : "ошибка", 400);
+    }
+  }
+
+  const parsed = moveSchema.safeParse(body);
+  if (!parsed.success) return jsonError("Неверные данные");
 
   if (hasSupabase() && user.mode === "supabase") {
     try {
@@ -27,7 +54,10 @@ export async function PATCH(req: Request) {
       });
       return jsonOk(result);
     } catch (e) {
-      return jsonError(e instanceof Error ? e.message : "move fail", 400);
+      return jsonError(
+        e instanceof Error ? e.message : "не удалось перенести",
+        400,
+      );
     }
   }
 
@@ -39,6 +69,9 @@ export async function PATCH(req: Request) {
     });
     return jsonOk(result);
   } catch (e) {
-    return jsonError(e instanceof Error ? e.message : "move fail", 400);
+    return jsonError(
+      e instanceof Error ? e.message : "не удалось перенести",
+      400,
+    );
   }
 }

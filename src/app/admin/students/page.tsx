@@ -248,10 +248,12 @@ export default function AdminStudentsPage() {
             <Link href={`/admin/students/${s.id}`} className="font-semibold underline">
               {s.full_name}
             </Link>
-            {s.is_minor ? <span className="text-fog"> · child</span> : null}
+            {s.is_minor ? <span className="text-fog"> · ребёнок</span> : null}
             <p className="text-sm text-fog">
               {s.email || "без email"}
-              {s.credits_available != null ? ` · ${s.credits_available} cr` : ""}
+              {s.credits_available != null
+                ? ` · ${s.credits_available} зан.`
+                : ""}
             </p>
           </div>
         </div>

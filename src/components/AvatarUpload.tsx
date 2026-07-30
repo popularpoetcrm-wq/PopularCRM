@@ -1,18 +1,26 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 export function AvatarUpload({
   url,
   onUploaded,
+  size = "md",
 }: {
   url?: string | null;
   onUploaded?: (url: string) => void;
+  size?: "sm" | "md" | "lg";
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [preview, setPreview] = useState<string | null>(url ?? null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+
+  useEffect(() => {
+    setPreview(url ?? null);
+  }, [url]);
+
+  const dim = size === "lg" ? "h-24 w-24" : size === "sm" ? "h-14 w-14" : "h-20 w-20";
 
   async function onFile(file: File | null) {
     if (!file) return;
@@ -20,24 +28,34 @@ export function AvatarUpload({
     setError("");
     const local = URL.createObjectURL(file);
     setPreview(local);
-    const fd = new FormData();
-    fd.set("file", file);
-    const res = await fetch("/api/v1/me/avatar", { method: "POST", body: fd });
-    const json = await res.json();
-    setBusy(false);
-    if (!json.ok) {
-      setError(json.error ?? "Не удалось загрузить");
-      return;
+    try {
+      const fd = new FormData();
+      fd.set("file", file);
+      const res = await fetch("/api/v1/me/avatar", { method: "POST", body: fd });
+      const json = await res.json();
+      if (!json.ok) {
+        setError(json.error ?? "Не удалось загрузить");
+        setPreview(url ?? null);
+        URL.revokeObjectURL(local);
+        return;
+      }
+      URL.revokeObjectURL(local);
+      setPreview(json.data.url);
+      onUploaded?.(json.data.url);
+    } catch {
+      setError("Не удалось загрузить");
+      setPreview(url ?? null);
+      URL.revokeObjectURL(local);
+    } finally {
+      setBusy(false);
     }
-    setPreview(json.data.url);
-    onUploaded?.(json.data.url);
   }
 
   return (
     <div className="flex flex-wrap items-center gap-4">
       <button
         type="button"
-        className="relative h-20 w-20 overflow-hidden rounded-full bg-white/10"
+        className={`relative ${dim} shrink-0 overflow-hidden rounded-full bg-white/10 ring-2 ring-white/15`}
         onClick={() => inputRef.current?.click()}
         aria-label="Загрузить фото"
       >

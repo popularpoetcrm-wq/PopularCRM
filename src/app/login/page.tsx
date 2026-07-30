@@ -6,10 +6,11 @@ import Link from "next/link";
 
 export default function LoginPage() {
   const router = useRouter();
-  const [email, setEmail] = useState("anna@example.com");
+  const [email, setEmail] = useState("");
   const [code, setCode] = useState("");
   const [step, setStep] = useState<"email" | "code">("email");
   const [message, setMessage] = useState("");
+  const [deliveredHint, setDeliveredHint] = useState("");
   const [loading, setLoading] = useState(false);
 
   function goAfterLogin(json: { roles?: string[]; needsWelcome?: boolean }) {
@@ -28,6 +29,7 @@ export default function LoginPage() {
     e.preventDefault();
     setLoading(true);
     setMessage("");
+    setDeliveredHint("");
     const res = await fetch("/api/v1/auth/login", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -44,11 +46,19 @@ export default function LoginPage() {
       return;
     }
     setStep("code");
-    if (json.data.debugCode) {
-      setCode(String(json.data.debugCode));
-      setMessage(`Код (dev, из БД): ${json.data.debugCode}`);
-    } else {
-      setMessage(json.data.message);
+    setCode("");
+    setMessage(json.data.message ?? "");
+    const d = (json.data.delivered as string[] | undefined) ?? [];
+    if (d.includes("telegram") && d.includes("email")) {
+      setDeliveredHint("Проверь Telegram и почту.");
+    } else if (d.includes("telegram")) {
+      setDeliveredHint("Код в боте @Popular_poet_bot.");
+    } else if (d.includes("email")) {
+      setDeliveredHint("Проверь входящие и спам.");
+    } else if (json.data.debugCode) {
+      setDeliveredHint(
+        `Доставка не настроена — код для ручного ввода: ${json.data.debugCode}`,
+      );
     }
   }
 
@@ -77,11 +87,16 @@ export default function LoginPage() {
       <div className="glass glass-strong fade-up p-8">
         <h1 className="font-display text-3xl">Вход</h1>
         <p className="mt-2 text-sm text-fog">
-          Уже в студии, но без входа?{" "}
+          Вводишь email → получаешь код из 6 цифр на почту и/или в Telegram (если
+          бот привязан). Без кода в кабинет не пускаем.
+        </p>
+        <p className="mt-2 text-sm text-fog">
+          Ещё нет email в CRM?{" "}
           <Link href="/join" className="underline">
-            Оставь email на /join
+            /join
           </Link>
-          . Если email уже в CRM — код придёт сюда. Telegram: /login в боте.
+          . Уже в боте? Команда{" "}
+          <code className="text-xs">/login</code> даст ссылку без кода.
         </p>
 
         {step === "email" ? (
@@ -91,64 +106,60 @@ export default function LoginPage() {
               <input
                 className="input mt-2"
                 type="email"
+                autoComplete="email"
+                placeholder="ты@почта.pl"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 required
               />
             </label>
             <button className="btn btn-primary w-full" disabled={loading}>
-              {loading ? "…" : "Продолжить"}
+              {loading ? "…" : "Получить код"}
             </button>
           </form>
         ) : (
           <form onSubmit={submitCode} className="mt-6 space-y-4">
+            <p className="text-sm text-fog">
+              Код для <strong>{email}</strong>
+            </p>
+            {deliveredHint ? (
+              <p className="text-sm text-stage-deep">{deliveredHint}</p>
+            ) : null}
             <label className="block text-sm font-semibold">
-              Код
+              Код из 6 цифр
               <input
-                className="input mt-2"
+                className="input mt-2 tracking-[0.35em]"
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                pattern="[0-9]{6}"
+                maxLength={6}
+                placeholder="••••••"
                 value={code}
-                onChange={(e) => setCode(e.target.value)}
+                onChange={(e) =>
+                  setCode(e.target.value.replace(/\D/g, "").slice(0, 6))
+                }
                 required
               />
             </label>
-            <button className="btn btn-primary w-full" disabled={loading}>
+            <button className="btn btn-primary w-full" disabled={loading || code.length < 6}>
               {loading ? "…" : "Войти"}
+            </button>
+            <button
+              type="button"
+              className="btn btn-ghost w-full text-sm"
+              onClick={() => {
+                setStep("email");
+                setCode("");
+                setMessage("");
+                setDeliveredHint("");
+              }}
+            >
+              Другой email
             </button>
           </form>
         )}
 
-        {message ? <p className="mt-4 text-sm text-warn">{message}</p> : null}
-
-        <div className="mt-6 flex flex-wrap gap-2 text-xs">
-          <button
-            type="button"
-            className="badge"
-            onClick={() => setEmail("anna@example.com")}
-          >
-            anna@example.com
-          </button>
-          <button
-            type="button"
-            className="badge"
-            onClick={() => setEmail("maria@example.com")}
-          >
-            maria@example.com
-          </button>
-          <button
-            type="button"
-            className="badge"
-            onClick={() => setEmail("teacher@studio.local")}
-          >
-            teacher@studio.local
-          </button>
-          <button
-            type="button"
-            className="badge"
-            onClick={() => setEmail("admin@studio.local")}
-          >
-            admin@studio.local
-          </button>
-        </div>
+        {message ? <p className="mt-4 text-sm text-fog">{message}</p> : null}
       </div>
     </main>
   );

@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { format } from "date-fns";
-import { pl } from "date-fns/locale";
+import { ru } from "date-fns/locale";
 import Link from "next/link";
 import { AvatarUpload } from "@/components/AvatarUpload";
 
@@ -362,7 +362,7 @@ export default function WelcomePage() {
           <p className="mt-3 text-fog">
             Ближайшее: {data.nextSession.title} ·{" "}
             {format(new Date(data.nextSession.starts_at), "d MMM HH:mm", {
-              locale: pl,
+              locale: ru,
             })}
           </p>
         ) : (

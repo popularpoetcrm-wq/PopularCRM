@@ -137,8 +137,10 @@ export default function AdminInsightsPage() {
 
       <div className="grid gap-6 lg:grid-cols-2">
         <section className="space-y-3">
-          <h2 className="font-display text-2xl">Cross-sell</h2>
-          <p className="text-sm text-fog">Импро с хорошей посещаемостью, без актёрки</p>
+          <h2 className="font-display text-2xl">Второй трек</h2>
+          <p className="text-sm text-fog">
+            Импровизация с хорошей посещаемостью, без актёрского мастерства
+          </p>
           {!data.cross_sell.length ? (
             <div className="glass p-5 text-fog">Пока пусто для этой вкладки.</div>
           ) : (
@@ -152,7 +154,7 @@ export default function AdminInsightsPage() {
 
         <section className="space-y-3">
           <h2 className="font-display text-2xl">Риск ухода</h2>
-          <p className="text-sm text-fog">present &lt;50% при ≥5 отметках</p>
+          <p className="text-sm text-fog">посещаемость &lt;50% при ≥5 отметках</p>
           {!data.risk.length ? (
             <div className="glass p-5 text-fog">Тихих рисков нет.</div>
           ) : (

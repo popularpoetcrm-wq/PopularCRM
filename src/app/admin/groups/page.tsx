@@ -1,7 +1,9 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { formatBirthDay } from "@/lib/format-date";
+import { enrollmentStatusLabel } from "@/lib/group-display";
 
 type Group = {
   id: string;
@@ -10,6 +12,10 @@ type Group = {
   teacher_name: string;
   brand_id: string;
   status?: "active" | "archived";
+  direction?: string | null;
+  direction_label?: string | null;
+  schedule_label?: string | null;
+  status_label?: string;
 };
 
 type RosterRow = {
@@ -18,6 +24,7 @@ type RosterRow = {
   full_name: string;
   tshirt_size?: string;
   birth_date?: string;
+  enrollment_status?: string;
   amount?: number;
   amount_paid?: number;
   payment_id?: string;
@@ -28,11 +35,13 @@ type RosterRow = {
 export default function AdminGroupsPage() {
   const [groups, setGroups] = useState<Group[]>([]);
   const [title, setTitle] = useState("");
+  const [direction, setDirection] = useState("");
   const [message, setMessage] = useState("");
   const [roster, setRoster] = useState<Record<string, RosterRow[]>>({});
   const [amounts, setAmounts] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [showInactive, setShowInactive] = useState(false);
+  const [showEndedMembers, setShowEndedMembers] = useState(false);
 
   async function load(includeInactive = showInactive) {
     setLoading(true);
@@ -79,6 +88,7 @@ export default function AdminGroupsPage() {
           full_name: person.full_name,
           tshirt_size: person.tshirt_size,
           birth_date: person.birth_date,
+          enrollment_status: enr.status,
           amount: payment?.amount,
           amount_paid: payment?.amount_paid,
           payment_id: payment?.id,
@@ -114,11 +124,15 @@ export default function AdminGroupsPage() {
     const res = await fetch("/api/v1/admin/groups", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ title }),
+      body: JSON.stringify({
+        title,
+        direction: direction || undefined,
+      }),
     });
     const json = await res.json();
     setMessage(json.ok ? `Группа: ${json.data.title}` : json.error);
     setTitle("");
+    setDirection("");
     await load();
   }
 
@@ -154,6 +168,28 @@ export default function AdminGroupsPage() {
     setMessage(
       json.ok
         ? `${row.full_name} → ${target?.title ?? "группа"}`
+        : json.error,
+    );
+    await load();
+  }
+
+  async function setMemberStatus(
+    row: RosterRow,
+    status: "active" | "paused" | "ended",
+  ) {
+    const res = await fetch("/api/v1/admin/enrollments", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action: "set_status",
+        enrollment_id: row.enrollment_id,
+        status,
+      }),
+    });
+    const json = await res.json();
+    setMessage(
+      json.ok
+        ? `${row.full_name}: ${enrollmentStatusLabel(status)}`
         : json.error,
     );
     await load();
@@ -204,7 +240,7 @@ export default function AdminGroupsPage() {
       <div>
         <h1 className="font-display text-3xl">Группы</h1>
         <p className="text-fog">
-          Активные / неактивные · перенос учеников · суммы
+          Название · направление · активная/неактивная · кто ходит
           {!loading ? ` · ${groups.length} групп · ${totalInGroups} записей` : " · загрузка…"}
         </p>
       </div>
@@ -213,11 +249,24 @@ export default function AdminGroupsPage() {
         <form onSubmit={createGroup} className="glass flex flex-1 flex-wrap gap-3 p-4">
           <input
             className="input max-w-md flex-1"
-            placeholder="Напр. Пятница 19:00 — Импровизация"
+            placeholder="Название, напр. Воскресная школа"
             value={title}
             onChange={(e) => setTitle(e.target.value)}
             required
           />
+          <select
+            className="input max-w-xs"
+            value={direction}
+            onChange={(e) => setDirection(e.target.value)}
+          >
+            <option value="">направление</option>
+            <option value="impro">импровизация</option>
+            <option value="acting">актёрское мастерство</option>
+            <option value="school">воскресная школа</option>
+            <option value="kids">детская студия</option>
+            <option value="show">спектакль</option>
+            <option value="other">другое</option>
+          </select>
           <button className="btn btn-primary" type="submit">
             Создать группу
           </button>
@@ -232,7 +281,15 @@ export default function AdminGroupsPage() {
               void load(v);
             }}
           />
-          Показать неактивные
+          Неактивные группы
+        </label>
+        <label className="glass flex items-center gap-2 px-4 py-3 text-sm">
+          <input
+            type="checkbox"
+            checked={showEndedMembers}
+            onChange={(e) => setShowEndedMembers(e.target.checked)}
+          />
+          Кто не ходит
         </label>
       </div>
 
@@ -244,6 +301,11 @@ export default function AdminGroupsPage() {
 
       {groups.map((g) => {
         const active = (g.status ?? "active") === "active";
+        const members = (roster[g.id] ?? []).filter((r) =>
+          showEndedMembers
+            ? true
+            : (r.enrollment_status ?? "active") !== "ended",
+        );
         return (
           <article
             key={g.id}
@@ -251,22 +313,40 @@ export default function AdminGroupsPage() {
           >
             <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 px-5 py-4">
               <div>
-                <h2 className="font-display text-2xl">{g.title}</h2>
+                <Link
+                  href={`/admin/groups/${g.id}`}
+                  className="font-display text-2xl underline"
+                >
+                  {g.title}
+                </Link>
                 <p className="text-sm text-fog">
-                  {g.teacher_name} · {g.capacity} мест
+                  {[
+                    g.direction_label,
+                    g.schedule_label,
+                    g.teacher_name !== "—" ? g.teacher_name : null,
+                    `${g.capacity} мест`,
+                  ]
+                    .filter(Boolean)
+                    .join(" · ")}
                 </p>
               </div>
               <div className="flex flex-wrap items-center gap-2">
                 <span className={`badge ${active ? "badge-ok" : "badge-warn"}`}>
-                  {active ? "активна" : "неактивна"}
+                  {g.status_label ?? (active ? "активная" : "неактивная")}
                 </span>
-                <span className="badge">{(roster[g.id] ?? []).length} чел.</span>
+                <span className="badge">
+                  {(roster[g.id] ?? []).filter((r) => (r.enrollment_status ?? "active") === "active").length}{" "}
+                  ходят
+                </span>
+                <Link href={`/admin/groups/${g.id}`} className="btn btn-stage text-sm">
+                  Открыть
+                </Link>
                 <button
                   type="button"
                   className="btn btn-ghost text-sm"
                   onClick={() => toggleStatus(g)}
                 >
-                  {active ? "Деактивировать" : "Активировать"}
+                  {active ? "Сделать неактивной" : "Сделать активной"}
                 </button>
               </div>
             </div>
@@ -275,6 +355,7 @@ export default function AdminGroupsPage() {
                 <thead>
                   <tr>
                     <th>Имя</th>
+                    <th>В группе</th>
                     <th>Футболка</th>
                     <th>ДР</th>
                     <th>Сумма</th>
@@ -285,16 +366,40 @@ export default function AdminGroupsPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {(roster[g.id] ?? []).length === 0 ? (
+                  {members.length === 0 ? (
                     <tr>
-                      <td colSpan={8} className="text-fog">
+                      <td colSpan={9} className="text-fog">
                         Пока никого в группе
                       </td>
                     </tr>
                   ) : (
-                    (roster[g.id] ?? []).map((row) => (
+                    members.map((row) => (
                       <tr key={row.enrollment_id}>
-                        <td className="font-semibold">{row.full_name}</td>
+                        <td className="font-semibold">
+                          <Link
+                            href={`/admin/students/${row.student_person_id}`}
+                            className="underline"
+                          >
+                            {row.full_name}
+                          </Link>
+                        </td>
+                        <td>
+                          <select
+                            className="input max-w-[9rem] text-sm"
+                            value={row.enrollment_status ?? "active"}
+                            onChange={(e) => {
+                              const v = e.target.value as
+                                | "active"
+                                | "paused"
+                                | "ended";
+                              void setMemberStatus(row, v);
+                            }}
+                          >
+                            <option value="active">ходит</option>
+                            <option value="paused">на паузе</option>
+                            <option value="ended">не ходит</option>
+                          </select>
+                        </td>
                         <td>{row.tshirt_size ?? "—"}</td>
                         <td>{formatBirthDay(row.birth_date)}</td>
                         <td>
@@ -311,7 +416,15 @@ export default function AdminGroupsPage() {
                         </td>
                         <td>{row.amount_paid ?? 0}</td>
                         <td>
-                          <span className="badge">{row.payment_status ?? "нет"}</span>
+                          <span className="badge">
+                            {row.payment_status === "paid"
+                              ? "оплачено"
+                              : row.payment_status === "pending"
+                                ? "ждём"
+                                : row.payment_status === "partial"
+                                  ? "частично"
+                                  : row.payment_status ?? "нет"}
+                          </span>
                         </td>
                         <td>
                           <select
@@ -340,7 +453,7 @@ export default function AdminGroupsPage() {
                             type="button"
                             onClick={() => saveAmount(row)}
                           >
-                            Save
+                            Сохранить
                           </button>
                           <button
                             className="btn btn-ghost"

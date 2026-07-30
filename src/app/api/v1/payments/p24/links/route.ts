@@ -50,7 +50,7 @@ export async function POST(req: Request) {
           ? "Пробное занятие"
           : productKind === "event"
             ? "Ивент"
-            : "Pakiet 4 zajęć"),
+            : "Пакет 4 занятий"),
       payment_url: paymentUrl,
       created_at: new Date().toISOString(),
     };

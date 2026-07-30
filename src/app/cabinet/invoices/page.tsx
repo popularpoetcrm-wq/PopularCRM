@@ -44,20 +44,20 @@ export default function InvoicesPage() {
       }),
     });
     const json = await res.json();
-    setMessage(json.ok ? `Faktura: ${json.data.invoice_number}` : json.error);
+    setMessage(json.ok ? `Счёт: ${json.data.invoice_number}` : json.error);
     await load();
   }
 
   return (
     <section className="space-y-6">
       <div>
-        <h1 className="font-display text-3xl">Faktury</h1>
-        <p className="text-fog">Wniosek z panelu → Saldeo (MVP).</p>
+        <h1 className="font-display text-3xl">Счета</h1>
+        <p className="text-fog">Заявка из кабинета → Saldeo (MVP).</p>
       </div>
 
       <div className="card-quiet grid gap-3 p-5 md:grid-cols-2">
         <label className="text-sm font-semibold">
-          Firma (opcjonalnie)
+          Компания (необязательно)
           <input className="input mt-2" value={companyName} onChange={(e) => setCompanyName(e.target.value)} />
         </label>
         <label className="text-sm font-semibold">
@@ -69,7 +69,7 @@ export default function InvoicesPage() {
       {message ? <p className="text-sm text-stage-deep">{message}</p> : null}
 
       <div className="space-y-3">
-        <h2 className="font-display text-xl">Płatności do faktury</h2>
+        <h2 className="font-display text-xl">Оплаты для счёта</h2>
         {payments.map((p) => (
           <div key={p.id} className="card-quiet flex flex-wrap items-center justify-between gap-3 p-5">
             <div>
@@ -77,14 +77,14 @@ export default function InvoicesPage() {
               <p className="text-sm text-fog">{p.amount} PLN · {p.status}</p>
             </div>
             <button className="btn btn-stage" onClick={() => requestInvoice(p.id)}>
-              Wystaw fakturę
+              Выставить счёт
             </button>
           </div>
         ))}
       </div>
 
       <div className="space-y-3">
-        <h2 className="font-display text-xl">Historia</h2>
+        <h2 className="font-display text-xl">История</h2>
         {invoices.map((i) => (
           <div key={i.id} className="card-quiet flex items-center justify-between p-5">
             <div>
@@ -98,7 +98,7 @@ export default function InvoicesPage() {
             ) : null}
           </div>
         ))}
-        {!invoices.length ? <p className="text-fog">Brak faktur.</p> : null}
+        {!invoices.length ? <p className="text-fog">Пока нет счетов.</p> : null}
       </div>
     </section>
   );

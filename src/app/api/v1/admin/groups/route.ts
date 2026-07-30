@@ -34,6 +34,9 @@ const createSchema = z.object({
   title: z.string().min(2),
   capacity: z.coerce.number().int().positive().optional(),
   teacher_name: z.string().optional(),
+  direction: z
+    .enum(["impro", "acting", "school", "kids", "show", "playback", "other"])
+    .optional(),
 });
 
 export async function POST(req: Request) {
@@ -54,8 +57,9 @@ export async function POST(req: Request) {
         capacity: parsed.data.capacity ?? 12,
         brand_id: brandId,
         status: "active",
+        direction: parsed.data.direction ?? null,
       })
-      .select("id, title, capacity, brand_id, status")
+      .select("id, title, capacity, brand_id, status, direction")
       .single();
     if (error) return jsonError(error.message, 400);
     return jsonOk({
@@ -64,6 +68,7 @@ export async function POST(req: Request) {
       title: data.title,
       capacity: data.capacity ?? 12,
       status: data.status ?? "active",
+      direction: data.direction ?? null,
       teacher_name: parsed.data.teacher_name ?? "—",
     });
   }

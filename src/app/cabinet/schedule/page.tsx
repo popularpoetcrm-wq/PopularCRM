@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { format } from "date-fns";
-import { pl } from "date-fns/locale";
+import { ru } from "date-fns/locale";
 import Link from "next/link";
 import { STUDIO_POLICY } from "@/lib/studio-policy";
 
@@ -95,7 +95,7 @@ export default function SchedulePage() {
                   ) : null}
                   <p className="text-sm text-fog">
                     {format(new Date(s.starts_at), "EEEE, d MMMM yyyy · HH:mm", {
-                      locale: pl,
+                      locale: ru,
                     })}
                   </p>
                 </div>

@@ -82,7 +82,7 @@ export async function syncInvoiceToSaldeo(
       nip: invoice.nip ?? undefined,
       amount: Number(invoice.payments.amount_paid || invoice.payments.amount),
       currency: invoice.payments.currency,
-      description: invoice.payments.description ?? "Pakiet zajęć",
+      description: invoice.payments.description ?? "Пакет занятий",
     });
 
     const { data: updated, error: updErr } = await db

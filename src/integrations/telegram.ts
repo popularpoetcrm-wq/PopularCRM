@@ -2,14 +2,36 @@ import { createHmac, createHash } from "crypto";
 import { getEnv } from "@/lib/env";
 import { renderTemplate } from "@/domain/notifications";
 
+export type InlineKeyboard = {
+  inline_keyboard: Array<Array<{ text: string; url?: string; callback_data?: string }>>;
+};
+
+export function mainMenuKeyboard(opts?: { cabinetUrl?: string; loginUrl?: string }): InlineKeyboard {
+  const cabinet = opts?.cabinetUrl;
+  const login = opts?.loginUrl;
+  const rows: InlineKeyboard["inline_keyboard"] = [
+    [
+      { text: "Войти", callback_data: "login" },
+      { text: "Баланс", callback_data: "balance" },
+      { text: "Группы", callback_data: "groups" },
+    ],
+  ];
+  const links: Array<{ text: string; url: string }> = [];
+  if (cabinet) links.push({ text: "Кабинет", url: cabinet });
+  if (login) links.push({ text: "Страница входа", url: login });
+  if (links.length) rows.push(links);
+  return { inline_keyboard: rows };
+}
+
 export async function sendTelegramMessage(params: {
   chatId: number | string;
   text: string;
   parseMode?: "HTML" | "Markdown";
+  replyMarkup?: InlineKeyboard;
 }) {
   const env = getEnv();
   if (!env.TELEGRAM_BOT_TOKEN) {
-    console.info("[telegram:dev]", params.chatId, params.text);
+    console.info("[telegram:dev]", params.chatId, params.text, params.replyMarkup);
     return { ok: true, result: { message_id: 0 } };
   }
 
@@ -23,6 +45,32 @@ export async function sendTelegramMessage(params: {
         text: params.text,
         parse_mode: params.parseMode,
         disable_web_page_preview: true,
+        reply_markup: params.replyMarkup,
+      }),
+    },
+  );
+  return res.json();
+}
+
+export async function answerCallbackQuery(params: {
+  callbackQueryId: string;
+  text?: string;
+  showAlert?: boolean;
+}) {
+  const env = getEnv();
+  if (!env.TELEGRAM_BOT_TOKEN) {
+    console.info("[telegram:callback]", params);
+    return { ok: true };
+  }
+  const res = await fetch(
+    `https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/answerCallbackQuery`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        callback_query_id: params.callbackQueryId,
+        text: params.text,
+        show_alert: params.showAlert,
       }),
     },
   );

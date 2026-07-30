@@ -165,7 +165,7 @@ async function importBrand(block) {
     student_person_id: e.student_person_id,
     group_id: e.group_id,
     plan_id: PLAN,
-    status: "active",
+    status: e.status === "ended" || e.status === "paused" ? e.status : "active",
     brand_id: brand,
     tags: e.tags ?? [],
   }));

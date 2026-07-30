@@ -241,7 +241,7 @@ export async function getCabinetDashboardDb(personId: string, tenantId: string) 
     return {
       id: s.id as string,
       group_id: s.group_id as string,
-      title: g?.title ?? "Zajęcia",
+      title: g?.title ?? "Занятие",
       starts_at: s.starts_at as string,
       status: s.status as string,
     };
@@ -368,6 +368,36 @@ export async function getCabinetDashboardDb(personId: string, tenantId: string) 
     }),
   };
 
+  // Soft attendance note for the client — no heavy analytics
+  const { data: attHist } = await db
+    .from("attendance")
+    .select("status")
+    .eq("student_person_id", personId)
+    .in("status", ["present", "absent", "absent_notified"])
+    .limit(80);
+  const attRows = attHist ?? [];
+  const presentCount = attRows.filter((a) => a.status === "present").length;
+  const markedCount = attRows.length;
+  const rate =
+    markedCount > 0 ? Math.round((presentCount / markedCount) * 100) : null;
+  let attendance_note: { message: string; present: number; total: number; rate: number } | null =
+    null;
+  if (markedCount >= 5 && rate != null && rate >= 70) {
+    attendance_note = {
+      message: `Спасибо, что регулярно ходишь — ${presentCount} из ${markedCount} занятий. Это заметно и ценно.`,
+      present: presentCount,
+      total: markedCount,
+      rate,
+    };
+  } else if (markedCount >= 3 && rate != null && rate >= 50) {
+    attendance_note = {
+      message: `Рады видеть тебя на занятиях — уже ${presentCount} из ${markedCount}.`,
+      present: presentCount,
+      total: markedCount,
+      rate,
+    };
+  }
+
   return {
     children,
     schedule: scheduleUnique,
@@ -377,6 +407,7 @@ export async function getCabinetDashboardDb(personId: string, tenantId: string) 
     invoices: invoices ?? [],
     groups: enrichedGroups,
     money,
+    attendance_note,
   };
 }
 
@@ -388,7 +419,7 @@ export async function listGroupsDb(
   const db = getAdminClient();
   let q = db
     .from("groups")
-    .select("id, title, capacity, brand_id, status, teacher_person_id")
+    .select("id, title, capacity, brand_id, status, direction, teacher_person_id")
     .eq("tenant_id", tenantId)
     .eq("brand_id", brandId)
     .order("title");
@@ -412,14 +443,173 @@ export async function listGroupsDb(
       .in("id", teacherIds);
     for (const t of teachers ?? []) teacherMap.set(t.id, t.full_name);
   }
-  return (data ?? []).map((g) => ({
-    id: g.id,
-    brand_id: g.brand_id ?? brandId,
-    title: g.title,
-    capacity: g.capacity ?? 12,
-    status: (g.status as "active" | "archived") || "active",
-    teacher_name: (g.teacher_person_id && teacherMap.get(g.teacher_person_id)) || "—",
-  }));
+
+  const groupIds = (data ?? []).map((g) => g.id);
+  const rulesByGroup = new Map<
+    string,
+    Array<{ weekday: number; start_time: string; room: string | null }>
+  >();
+  if (groupIds.length) {
+    const { data: rules } = await db
+      .from("group_schedule_rules")
+      .select("group_id, weekday, start_time, room")
+      .in("group_id", groupIds);
+    for (const r of rules ?? []) {
+      const list = rulesByGroup.get(r.group_id) ?? [];
+      list.push({
+        weekday: r.weekday,
+        start_time: r.start_time,
+        room: r.room,
+      });
+      rulesByGroup.set(r.group_id, list);
+    }
+  }
+
+  const { formatGroupCard } = await import("@/lib/group-display");
+  return (data ?? []).map((g) => {
+    const card = formatGroupCard({
+      title: g.title,
+      direction: g.direction,
+      status: g.status,
+      rules: rulesByGroup.get(g.id) ?? [],
+    });
+    return {
+      id: g.id,
+      brand_id: g.brand_id ?? brandId,
+      title: g.title,
+      capacity: g.capacity ?? 12,
+      status: (g.status as "active" | "archived") || "active",
+      direction: g.direction ?? null,
+      direction_label: card.direction_label,
+      schedule_label: card.schedule_label,
+      status_label: card.status_label,
+      subtitle: card.subtitle,
+      teacher_name: (g.teacher_person_id && teacherMap.get(g.teacher_person_id)) || "—",
+    };
+  });
+}
+
+export async function getGroupDetailDb(groupId: string, tenantId: string) {
+  const db = getAdminClient();
+  const { data: group, error } = await db
+    .from("groups")
+    .select("id, title, capacity, brand_id, status, direction, teacher_person_id")
+    .eq("id", groupId)
+    .eq("tenant_id", tenantId)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  if (!group) throw new Error("Группа не найдена");
+
+  const { data: rules } = await db
+    .from("group_schedule_rules")
+    .select("weekday, start_time, duration_minutes, room")
+    .eq("group_id", groupId);
+
+  const { data: enrollments } = await db
+    .from("enrollments")
+    .select("id, student_person_id, status, started_at, ended_at")
+    .eq("group_id", groupId)
+    .eq("tenant_id", tenantId)
+    .order("started_at", { ascending: false });
+
+  const personIds = [...new Set((enrollments ?? []).map((e) => e.student_person_id))];
+  const { data: persons } = personIds.length
+    ? await db
+        .from("persons")
+        .select("id, full_name, email, phone, telegram_username, birth_date, tshirt_size")
+        .in("id", personIds)
+    : { data: [] as Array<Record<string, unknown>> };
+  const personMap = new Map((persons ?? []).map((p) => [p.id as string, p]));
+
+  const { formatGroupCard, enrollmentStatusLabel } = await import(
+    "@/lib/group-display"
+  );
+  const card = formatGroupCard({
+    title: group.title,
+    direction: group.direction,
+    status: group.status,
+    rules: rules ?? [],
+  });
+
+  const members = (enrollments ?? []).map((e) => {
+    const p = personMap.get(e.student_person_id);
+    return {
+      enrollment_id: e.id,
+      student_person_id: e.student_person_id,
+      status: e.status as string,
+      status_label: enrollmentStatusLabel(e.status as string),
+      started_at: e.started_at,
+      ended_at: e.ended_at,
+      full_name: (p?.full_name as string) ?? "—",
+      email: (p?.email as string | null) ?? null,
+      phone: (p?.phone as string | null) ?? null,
+      telegram_username: (p?.telegram_username as string | null) ?? null,
+      birth_date: (p?.birth_date as string | null) ?? null,
+      tshirt_size: (p?.tshirt_size as string | null) ?? null,
+    };
+  });
+  members.sort((a, b) => {
+    const rank = (s: string) =>
+      s === "active" ? 0 : s === "paused" ? 1 : 2;
+    return rank(a.status) - rank(b.status) || a.full_name.localeCompare(b.full_name, "ru");
+  });
+
+  return {
+    group: {
+      ...group,
+      direction_label: card.direction_label,
+      schedule_label: card.schedule_label,
+      status_label: card.status_label,
+      subtitle: card.subtitle,
+      rules: rules ?? [],
+    },
+    members,
+    counts: {
+      active: members.filter((m) => m.status === "active").length,
+      paused: members.filter((m) => m.status === "paused").length,
+      ended: members.filter((m) => m.status === "ended").length,
+    },
+  };
+}
+
+export async function setEnrollmentStatusDb(input: {
+  enrollmentId: string;
+  tenantId: string;
+  status: "active" | "paused" | "ended";
+}) {
+  const db = getAdminClient();
+  const patch: Record<string, unknown> = { status: input.status };
+  if (input.status === "ended") {
+    patch.ended_at = new Date().toISOString();
+  } else if (input.status === "active") {
+    patch.ended_at = null;
+  }
+  const { data, error } = await db
+    .from("enrollments")
+    .update(patch)
+    .eq("id", input.enrollmentId)
+    .eq("tenant_id", input.tenantId)
+    .select("id, status, group_id, student_person_id")
+    .single();
+  if (error) throw new Error(error.message);
+  return data;
+}
+
+export async function updateGroupDb(
+  groupId: string,
+  tenantId: string,
+  patch: { title?: string; direction?: string | null; status?: "active" | "archived"; capacity?: number },
+) {
+  const db = getAdminClient();
+  const { data, error } = await db
+    .from("groups")
+    .update(patch)
+    .eq("id", groupId)
+    .eq("tenant_id", tenantId)
+    .select("id, title, direction, status, capacity, brand_id")
+    .single();
+  if (error) throw new Error(error.message);
+  return data;
 }
 
 export async function setGroupStatusDb(
@@ -547,11 +737,11 @@ export async function moveEnrollmentDb(input: {
 
 export async function listStudentsDb(tenantId: string, brandId: BrandId) {
   const db = getAdminClient();
+  // All enrollment statuses so admin can see who stopped attending
   const { data: enrollments } = await db
     .from("enrollments")
     .select("id, student_person_id, group_id, brand_id, status")
     .eq("tenant_id", tenantId)
-    .eq("status", "active")
     .eq("brand_id", brandId);
 
   const studentIds = [...new Set((enrollments ?? []).map((e) => e.student_person_id))];
@@ -818,7 +1008,7 @@ async function loadBrandSessionsBoard(
 
   return sessionList.map((s) => {
     const group = groupMap.get(s.group_id);
-    const groupTitle = group?.title ?? "Zajęcia";
+    const groupTitle = group?.title ?? "Занятие";
     const sessionAtt = (attendance ?? []).filter((a) => a.session_id === s.id);
     const attByStudent = new Map(sessionAtt.map((a) => [a.student_person_id, a]));
     const rosterEnroll = (enrollments ?? []).filter((e) => e.group_id === s.group_id);
@@ -951,7 +1141,7 @@ export async function listSessionsArchiveDb(
     return {
       id: s.id,
       group_id: s.group_id,
-      group_title: groupMap.get(s.group_id) ?? "Zajęcia",
+      group_title: groupMap.get(s.group_id) ?? "Занятие",
       starts_at: s.starts_at,
       status: s.status,
       present_count: c.present,
