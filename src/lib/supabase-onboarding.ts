@@ -482,11 +482,20 @@ export async function getBotStatusForTelegramUserDb(telegramUserId: number) {
   if (!person) return null;
 
   const dash = await getCabinetDashboardDb(person.id, person.tenant_id);
-  const next = [...(dash.schedule ?? [])]
+  const schedule = [...(dash.schedule ?? [])]
     .filter((s: { status: string }) => s.status === "scheduled")
     .sort((a: { starts_at: string }, b: { starts_at: string }) =>
       a.starts_at.localeCompare(b.starts_at),
-    )[0] as { title: string; starts_at: string } | undefined;
+    )
+    .slice(0, 6) as Array<{
+    title: string;
+    starts_at: string;
+    myStatus?: string | null;
+  }>;
+  const next = schedule[0];
+  const makeupsAvailable = ((dash.makeups ?? []) as Array<{ status: string }>).filter(
+    (m) => m.status === "available",
+  ).length;
 
   return {
     person,
@@ -494,6 +503,8 @@ export async function getBotStatusForTelegramUserDb(telegramUserId: number) {
     groups: dash.groups ?? [],
     money: dash.money,
     packages: dash.packages ?? [],
+    schedule,
+    makeupsAvailable,
     nextSession: next ?? null,
   };
 }

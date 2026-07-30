@@ -3,31 +3,86 @@ import { getEnv } from "@/lib/env";
 import { renderTemplate } from "@/domain/notifications";
 
 export type InlineKeyboard = {
-  inline_keyboard: Array<Array<{ text: string; url?: string; callback_data?: string }>>;
+  inline_keyboard: Array<
+    Array<{ text: string; url?: string; callback_data?: string }>
+  >;
 };
 
-export function mainMenuKeyboard(opts?: { cabinetUrl?: string; loginUrl?: string }): InlineKeyboard {
-  const cabinet = opts?.cabinetUrl;
-  const login = opts?.loginUrl;
-  const rows: InlineKeyboard["inline_keyboard"] = [
-    [
-      { text: "Войти", callback_data: "login" },
-      { text: "Баланс", callback_data: "balance" },
-      { text: "Группы", callback_data: "groups" },
+export type ReplyKeyboard = {
+  keyboard: Array<Array<{ text: string }>>;
+  resize_keyboard?: boolean;
+  is_persistent?: boolean;
+  one_time_keyboard?: boolean;
+  input_field_placeholder?: string;
+};
+
+export type TelegramReplyMarkup =
+  | InlineKeyboard
+  | ReplyKeyboard
+  | { remove_keyboard: true };
+
+/** Labels for the persistent bottom menu (exact match). */
+export const BOT_MENU = {
+  home: "🏠 Главная",
+  schedule: "📅 Занятия",
+  balance: "💳 Баланс",
+  groups: "🎭 Группы",
+  cabinet: "🔑 Кабинет",
+  help: "ℹ️ Помощь",
+} as const;
+
+export function mainReplyKeyboard(): ReplyKeyboard {
+  return {
+    keyboard: [
+      [{ text: BOT_MENU.home }, { text: BOT_MENU.schedule }],
+      [{ text: BOT_MENU.balance }, { text: BOT_MENU.groups }],
+      [{ text: BOT_MENU.cabinet }],
     ],
-  ];
-  const links: Array<{ text: string; url: string }> = [];
-  if (cabinet) links.push({ text: "Кабинет", url: cabinet });
-  if (login) links.push({ text: "Страница входа", url: login });
-  if (links.length) rows.push(links);
-  return { inline_keyboard: rows };
+    resize_keyboard: true,
+    is_persistent: true,
+    input_field_placeholder: "Выбери пункт меню…",
+  };
+}
+
+/** Single deep-link — no duplicate «login page» / «cabinet» clutter. */
+export function openCabinetKeyboard(magicUrl: string): InlineKeyboard {
+  return {
+    inline_keyboard: [[{ text: "Открыть кабинет →", url: magicUrl }]],
+  };
+}
+
+export function openLoginKeyboard(loginUrl: string): InlineKeyboard {
+  return {
+    inline_keyboard: [[{ text: "Войти на сайте →", url: loginUrl }]],
+  };
+}
+
+/** @deprecated Prefer mainReplyKeyboard + openCabinetKeyboard */
+export function mainMenuKeyboard(opts?: {
+  cabinetUrl?: string;
+  loginUrl?: string;
+}): InlineKeyboard {
+  void opts;
+  return {
+    inline_keyboard: [
+      [
+        { text: "Главная", callback_data: "home" },
+        { text: "Баланс", callback_data: "balance" },
+      ],
+      [
+        { text: "Занятия", callback_data: "schedule" },
+        { text: "Группы", callback_data: "groups" },
+      ],
+      [{ text: "Кабинет", callback_data: "login" }],
+    ],
+  };
 }
 
 export async function sendTelegramMessage(params: {
   chatId: number | string;
   text: string;
   parseMode?: "HTML" | "Markdown";
-  replyMarkup?: InlineKeyboard;
+  replyMarkup?: TelegramReplyMarkup;
 }) {
   const env = getEnv();
   if (!env.TELEGRAM_BOT_TOKEN) {
@@ -43,9 +98,9 @@ export async function sendTelegramMessage(params: {
       body: JSON.stringify({
         chat_id: params.chatId,
         text: params.text,
-        parse_mode: params.parseMode,
         disable_web_page_preview: true,
         reply_markup: params.replyMarkup,
+        parse_mode: params.parseMode ?? "HTML",
       }),
     },
   );
@@ -90,7 +145,12 @@ export async function sendTemplatedTelegram(params: {
 export function validateTelegramInitData(initData: string): {
   ok: boolean;
   authDate?: number;
-  user?: { id: number; username?: string; first_name?: string; last_name?: string };
+  user?: {
+    id: number;
+    username?: string;
+    first_name?: string;
+    last_name?: string;
+  };
 } {
   const env = getEnv();
   if (!env.TELEGRAM_BOT_TOKEN) {
@@ -140,4 +200,11 @@ export function verifyWebhookSecret(headerValue: string | null): boolean {
 
 export function sha256(input: string) {
   return createHash("sha256").update(input).digest("hex");
+}
+
+export function escapeHtml(s: string) {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
 }
