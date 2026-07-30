@@ -77,19 +77,31 @@ export async function GET() {
       continue;
     }
 
-    const capacity =
-      session.capacity_override ?? group.capacity ?? 12;
+    const capacity = session.capacity_override ?? group.capacity ?? 12;
     const { count: reserved } = await db
       .from("makeup_bookings")
       .select("*", { count: "exact", head: true })
       .eq("target_session_id", session.id)
       .eq("status", "booked");
-    const { count: regular } = await db
+
+    const { data: roster } = await db
       .from("enrollments")
-      .select("*", { count: "exact", head: true })
+      .select("id, student_person_id")
       .eq("group_id", session.group_id)
       .eq("status", "active");
-    const remaining = capacity - (reserved ?? 0) - (regular ?? 0);
+    const enrollmentIds = (roster ?? []).map((e) => e.id);
+    let wontCome = 0;
+    if (enrollmentIds.length) {
+      const { count: absentCount } = await db
+        .from("attendance")
+        .select("*", { count: "exact", head: true })
+        .eq("session_id", session.id)
+        .in("enrollment_id", enrollmentIds)
+        .in("status", ["absent", "absent_notified"]);
+      wontCome = absentCount ?? 0;
+    }
+    const expectedRegular = Math.max(0, (roster ?? []).length - wontCome);
+    const remaining = capacity - expectedRegular - (reserved ?? 0);
     if (remaining <= 0) continue;
 
     groups.push({

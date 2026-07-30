@@ -131,9 +131,9 @@ export default function MakeupsPage() {
         <h1 className="font-display text-3xl">Отработки</h1>
         <p className="mt-2 text-fog">
           Появится, если предупредил «не приду» ≥{STUDIO_POLICY.absentNotifyCutoffHours}{" "}
-          ч до занятия. Можно прийти в другую группу или на пробное с popularpoet.pl
-          (бесплатно, но место списывается). Бронь/отмена за{" "}
-          {STUDIO_POLICY.makeupCutoffHours} ч.
+          ч. Можно отработать на <strong>другой группе</strong> того же бренда
+          (пропустил импро → пришёл на актёрку) или на пробное с popularpoet.pl.
+          Бронь/отмена за {STUDIO_POLICY.makeupCutoffHours} ч.
         </p>
         <p className="mt-1 text-sm text-fog">
           <Link href="/cabinet/schedule" className="underline">

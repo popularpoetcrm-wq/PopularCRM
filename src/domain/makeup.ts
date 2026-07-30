@@ -74,13 +74,24 @@ export async function bookMakeup(
     .eq("target_session_id", params.targetSessionId)
     .eq("status", "booked");
 
-  const { count: regularPresent } = await db
-    .from("attendance")
-    .select("*", { count: "exact", head: true })
-    .eq("session_id", params.targetSessionId)
-    .eq("attendance_type", "regular");
-
-  const used = (reserved ?? 0) + (regularPresent ?? 0);
+  const { data: roster } = await db
+    .from("enrollments")
+    .select("id")
+    .eq("group_id", session.group_id)
+    .eq("status", "active");
+  const enrollmentIds = (roster ?? []).map((e) => e.id);
+  let wontCome = 0;
+  if (enrollmentIds.length) {
+    const { count: absentCount } = await db
+      .from("attendance")
+      .select("*", { count: "exact", head: true })
+      .eq("session_id", params.targetSessionId)
+      .in("enrollment_id", enrollmentIds)
+      .in("status", ["absent", "absent_notified"]);
+    wontCome = absentCount ?? 0;
+  }
+  const expectedRegular = Math.max(0, (roster ?? []).length - wontCome);
+  const used = expectedRegular + (reserved ?? 0);
   if (used >= capacity) {
     throw new Error("Нет свободных мест на занятии");
   }
