@@ -21,6 +21,49 @@ async function findActivePackageForEnrollment(
   return data;
 }
 
+async function findActivePackageForStudent(
+  db: SupabaseClient,
+  studentPersonId: string,
+) {
+  const { data: enrollments, error: eErr } = await db
+    .from("enrollments")
+    .select("id")
+    .eq("student_person_id", studentPersonId)
+    .eq("status", "active");
+  if (eErr) throw eErr;
+  const ids = (enrollments ?? []).map((e) => e.id);
+  if (!ids.length) return null;
+  const { data, error } = await db
+    .from("student_packages")
+    .select("*")
+    .in("enrollment_id", ids)
+    .eq("status", "active")
+    .order("activated_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) throw error;
+  return data;
+}
+
+function defaultMakeupPlan(
+  pkgPlan?: PackagePlanSnapshot | null,
+): PackagePlanSnapshot {
+  return {
+    id: pkgPlan?.id ?? "studio-default",
+    name: pkgPlan?.name ?? "Studio",
+    lessons_count: pkgPlan?.lessons_count ?? 4,
+    validity_days: pkgPlan?.validity_days ?? 60,
+    price_gross: pkgPlan?.price_gross ?? 0,
+    currency: pkgPlan?.currency ?? "PLN",
+    start_policy: pkgPlan?.start_policy ?? "on_payment",
+    // Studio rule: отработка только если предупредил
+    makeup_policy: "ONLY_IF_NOTIFIED",
+    makeup_validity_days:
+      pkgPlan?.makeup_validity_days ?? STUDIO_POLICY.makeupValidityDays,
+    booking_cutoff_minutes: pkgPlan?.booking_cutoff_minutes ?? 120,
+  };
+}
+
 async function consumeRegularCredit(
   db: SupabaseClient,
   params: {
@@ -77,7 +120,7 @@ async function maybeCreateMakeup(
     tenantId: string;
     studentPersonId: string;
     attendanceId: string;
-    packageId: string;
+    packageId?: string | null;
     plan: PackagePlanSnapshot;
     attendanceStatus: string;
   },
@@ -104,7 +147,7 @@ async function maybeCreateMakeup(
       tenant_id: params.tenantId,
       student_person_id: params.studentPersonId,
       source_attendance_id: params.attendanceId,
-      source_package_id: params.packageId,
+      source_package_id: params.packageId ?? null,
       status: "available",
       valid_until: validUntil.toISOString(),
       rules_snapshot: {
@@ -202,13 +245,16 @@ export async function bulkUpsertAttendance(
       .single();
     if (error) throw error;
 
-    const pkg = await findActivePackageForEnrollment(db, item.enrollmentId);
-    if (pkg && item.attendanceType === "regular") {
-      const plan = pkg.plan_snapshot as PackagePlanSnapshot;
+    const pkgOnEnrollment = await findActivePackageForEnrollment(
+      db,
+      item.enrollmentId,
+    );
+    // Credit burn only against package of THIS group/enrollment.
+    if (pkgOnEnrollment && item.attendanceType === "regular") {
       const { data: linkedCredit } = await db
         .from("lesson_credits")
         .select("*")
-        .eq("student_package_id", pkg.id)
+        .eq("student_package_id", pkgOnEnrollment.id)
         .eq("consumed_attendance_id", row.id)
         .maybeSingle();
 
@@ -229,13 +275,43 @@ export async function bulkUpsertAttendance(
         consumedNow = Boolean(
           await consumeRegularCredit(db, {
             tenantId: params.tenantId,
-            packageId: pkg.id,
+            packageId: pkgOnEnrollment.id,
             sessionId: params.sessionId,
             attendanceId: row.id,
           }),
         );
       }
 
+      if (consumedNow) {
+        const remaining = await db
+          .from("lesson_credits")
+          .select("*", { count: "exact", head: true })
+          .eq("student_package_id", pkgOnEnrollment.id)
+          .eq("status", "available");
+
+        if ((remaining.count ?? 0) === 1) {
+          await enqueueNotification(db, {
+            tenantId: params.tenantId,
+            recipientPersonId: await notificationRecipient(
+              db,
+              item.studentPersonId,
+            ),
+            channel: "telegram",
+            templateCode: "credits.low_balance",
+            payload: { remaining: 1, packageId: pkgOnEnrollment.id },
+          });
+        }
+      }
+    }
+
+    // Makeup: предупредил → отработка, даже если пакет на другой группе.
+    if (item.attendanceType === "regular") {
+      const pkgForMakeup =
+        pkgOnEnrollment ??
+        (await findActivePackageForStudent(db, item.studentPersonId));
+      const plan = defaultMakeupPlan(
+        (pkgForMakeup?.plan_snapshot as PackagePlanSnapshot | null) ?? null,
+      );
       const { data: existingMakeup } = await db
         .from("makeup_credits")
         .select("id, status")
@@ -248,7 +324,7 @@ export async function bulkUpsertAttendance(
           tenantId: params.tenantId,
           studentPersonId: item.studentPersonId,
           attendanceId: row.id,
-          packageId: pkg.id,
+          packageId: pkgForMakeup?.id ?? null,
           plan,
           attendanceStatus: item.status,
         });
@@ -259,27 +335,6 @@ export async function bulkUpsertAttendance(
           .delete()
           .eq("id", existingMakeup.id);
         if (deleteError) throw deleteError;
-      }
-
-      if (consumedNow) {
-        const remaining = await db
-          .from("lesson_credits")
-          .select("*", { count: "exact", head: true })
-          .eq("student_package_id", pkg.id)
-          .eq("status", "available");
-
-        if ((remaining.count ?? 0) === 1) {
-          await enqueueNotification(db, {
-            tenantId: params.tenantId,
-            recipientPersonId: await notificationRecipient(
-              db,
-              item.studentPersonId,
-            ),
-            channel: "telegram",
-            templateCode: "credits.low_balance",
-            payload: { remaining: 1, packageId: pkg.id },
-          });
-        }
       }
     }
 
@@ -375,8 +430,11 @@ export async function reportCantAttendDb(
   return {
     ...result,
     studentPersonId,
-    message:
-      studentPersonId === params.actorPersonId
+    message: result.createdMakeups?.length
+      ? studentPersonId === params.actorPersonId
+        ? "Готово: тебя не ждут. Отработка уже в разделе «Отработки»."
+        : "Готово: ребёнка не ждут. Отработка уже в разделе «Отработки»."
+      : studentPersonId === params.actorPersonId
         ? "Готово: студия знает, что тебя не будет."
         : "Готово: студия знает, что ребёнка не будет.",
   };
