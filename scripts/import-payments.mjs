@@ -71,22 +71,39 @@ async function main() {
   const existing = new Set();
   for (let i = 0; i < enrollIds.length; i += 100) {
     const chunk = enrollIds.slice(i, i + 100);
-    const { data } = await db.from("enrollments").select("id").in("id", chunk);
+    const { data, error } = await db
+      .from("enrollments")
+      .select("id")
+      .in("id", chunk);
+    if (error) {
+      throw new Error(`Cannot verify enrollments: ${error.message}`);
+    }
     for (const r of data ?? []) existing.add(r.id);
   }
 
   const usable = payload.payments.filter((p) => existing.has(p.enrollment_id));
   const skipped = payload.payments.length - usable.length;
   console.log("enrollments matched", usable.length, "skipped", skipped);
+  if (APPLY && skipped > 0) {
+    throw new Error(
+      `Apply refused: ${skipped} payment events have no matching enrollment`,
+    );
+  }
 
   // brand_id from enrollment → group
   const brandByEnrollment = new Map();
-  for (let i = 0; i < usable.length; i += 100) {
-    const chunk = usable.slice(i, i + 100).map((p) => p.enrollment_id);
-    const { data: enrs } = await db
+  const usableEnrollmentIds = [
+    ...new Set(usable.map((p) => p.enrollment_id)),
+  ];
+  for (let i = 0; i < usableEnrollmentIds.length; i += 100) {
+    const chunk = usableEnrollmentIds.slice(i, i + 100);
+    const { data: enrs, error } = await db
       .from("enrollments")
       .select("id, brand_id, group_id, groups(brand_id)")
       .in("id", chunk);
+    if (error) {
+      throw new Error(`Cannot load enrollment brands: ${error.message}`);
+    }
     for (const e of enrs ?? []) {
       const gBrand = Array.isArray(e.groups)
         ? e.groups[0]?.brand_id
@@ -111,10 +128,16 @@ async function main() {
     payment_method: p.payment_method,
     description: p.description,
     due_at: p.due_at ?? null,
-    paid_at: p.status === "paid" ? new Date().toISOString() : null,
+    paid_at: p.paid_at ?? null,
   }));
 
   if (!APPLY) {
+    const paidRows = rows.filter((row) => row.status === "paid");
+    const pendingRows = rows.filter((row) => row.status === "pending");
+    const paidAmount = paidRows.reduce(
+      (sum, row) => sum + Number(row.amount_paid),
+      0,
+    );
     const openAmount = rows.reduce(
       (sum, row) => sum + Number(row.amount) - Number(row.amount_paid),
       0,
@@ -122,7 +145,14 @@ async function main() {
     console.log({
       mode: "preview",
       importedPaymentsToReplace: rows.length,
+      paidPayments: paidRows.length,
+      paidAmount,
+      pendingPayments: pendingRows.length,
       openAmount,
+      currentPackageBalances: payload.current_packages_preview?.length ?? 0,
+      packageBalancesNeedingReview:
+        payload.current_packages_preview?.filter((row) => row.needs_review)
+          .length ?? 0,
       message: "No database writes. Re-run with --apply after review.",
     });
     return;
@@ -133,17 +163,22 @@ async function main() {
     .from("payments")
     .delete()
     .like("provider_session_id", "import:%");
-  if (delErr) console.warn("WARN delete old imports", delErr.message);
-  else console.log("OK cleared previous import:* payments");
+  if (delErr) {
+    throw new Error(`Cannot clear previous import payments: ${delErr.message}`);
+  }
+  console.log("OK cleared previous import:* payments");
 
   const ok = await upsertChunk("payments", rows, "id", "payments");
   if (!ok) process.exit(1);
 
   // Patch group directions from titles
-  const { data: groups } = await db
+  const { data: groups, error: groupsError } = await db
     .from("groups")
     .select("id, title, direction")
     .eq("tenant_id", payload.tenant_id);
+  if (groupsError) {
+    throw new Error(`Cannot load groups: ${groupsError.message}`);
+  }
   let patched = 0;
   for (const g of groups ?? []) {
     const dir = directionFromTitle(g.title);
@@ -153,11 +188,14 @@ async function main() {
   }
   console.log("OK group.direction patched", patched);
 
-  const { data: sumRows } = await db
+  const { data: sumRows, error: sumError } = await db
     .from("payments")
     .select("amount, amount_paid, status")
     .eq("tenant_id", payload.tenant_id)
     .like("provider_session_id", "import:%");
+  if (sumError) {
+    throw new Error(`Cannot verify imported payments: ${sumError.message}`);
+  }
   const revenue = (sumRows ?? [])
     .filter((p) => p.status === "paid")
     .reduce((s, p) => s + Number(p.amount_paid || 0), 0);
