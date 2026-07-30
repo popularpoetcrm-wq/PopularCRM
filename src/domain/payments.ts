@@ -13,6 +13,10 @@ import {
   type P24Notification,
 } from "@/integrations/przelewy24";
 import { paymentReturnUrl, paymentStatusUrl } from "@/lib/brands";
+import {
+  createTicketsCrmCheckout,
+  hasTicketsCheckout,
+} from "@/lib/tickets-checkout";
 import { nanoid } from "nanoid";
 
 export async function createPaymentLink(
@@ -26,6 +30,7 @@ export async function createPaymentLink(
     currency?: string;
     description?: string;
     email?: string;
+    buyerName?: string;
   },
 ) {
   const { data: plan, error: planErr } = await db
@@ -36,7 +41,9 @@ export async function createPaymentLink(
   if (planErr) throw planErr;
 
   const sessionId = `crm-${nanoid(16)}`;
-  const amountGrosze = Math.round(params.amount * 100);
+  const description = params.description ?? plan.name;
+  const currency = params.currency ?? "PLN";
+  const email = params.email ?? "payer@example.com";
 
   const { data: payment, error } = await db
     .from("payments")
@@ -46,32 +53,51 @@ export async function createPaymentLink(
       payer_person_id: params.payerPersonId,
       enrollment_id: params.enrollmentId,
       amount: params.amount,
-      currency: params.currency ?? "PLN",
+      currency,
       status: "pending",
       payment_method: "online",
-      description: params.description ?? plan.name,
+      description,
       provider_session_id: sessionId,
     })
     .select("*")
     .single();
   if (error) throw error;
 
-  const registered = await registerP24Transaction({
-    sessionId,
-    amount: amountGrosze,
-    currency: params.currency ?? "PLN",
-    description: params.description ?? plan.name,
-    email: params.email ?? "payer@example.com",
-    // P24 is bound to populartickets domain
-    urlReturn: paymentReturnUrl("/pay/return"),
-    urlStatus: paymentStatusUrl(),
-  });
+  let paymentUrl: string;
+  let providerToken: string | null = null;
+
+  if (hasTicketsCheckout()) {
+    const checkout = await createTicketsCrmCheckout({
+      crmPaymentId: payment.id,
+      amount: params.amount,
+      currency,
+      description,
+      buyerEmail: email,
+      buyerName: params.buyerName,
+      payerName: params.buyerName,
+    });
+    paymentUrl = checkout.checkout_url;
+    providerToken = checkout.order_id;
+  } else {
+    const registered = await registerP24Transaction({
+      sessionId,
+      amount: Math.round(params.amount * 100),
+      currency,
+      description,
+      email,
+      // P24 is bound to populartickets domain
+      urlReturn: paymentReturnUrl("/pay/return"),
+      urlStatus: paymentStatusUrl(),
+    });
+    paymentUrl = registered.paymentUrl;
+    providerToken = registered.token;
+  }
 
   await db
     .from("payments")
     .update({
-      provider_token: registered.token,
-      payment_url: registered.paymentUrl,
+      provider_token: providerToken,
+      payment_url: paymentUrl,
     })
     .eq("id", payment.id);
 
@@ -81,10 +107,10 @@ export async function createPaymentLink(
     action: "payment.link_created",
     entityType: "payment",
     entityId: payment.id,
-    after: { sessionId, amount: params.amount },
+    after: { sessionId, amount: params.amount, via: hasTicketsCheckout() ? "tickets" : "p24_direct" },
   });
 
-  return { ...payment, payment_url: registered.paymentUrl, plan };
+  return { ...payment, payment_url: paymentUrl, plan };
 }
 
 export async function handleP24Webhook(

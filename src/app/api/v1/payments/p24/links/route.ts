@@ -105,25 +105,49 @@ export async function POST(req: Request) {
       }
 
       const sessionId = `crm-${nanoid(16)}`;
-      const { registerP24Transaction } = await import("@/integrations/przelewy24");
-      const { paymentReturnUrl, paymentStatusUrl } = await import("@/lib/brands");
-      const registered = await registerP24Transaction({
-        sessionId,
-        amount: Math.round(parsed.data.amount * 100),
-        currency: parsed.data.currency,
-        description: parsed.data.description ?? existing.description ?? "Абонемент",
-        email: user.email,
-        urlReturn: paymentReturnUrl("/pay/return"),
-        urlStatus: paymentStatusUrl(),
-      });
+      const description =
+        parsed.data.description ?? existing.description ?? "Абонемент";
+      const { hasTicketsCheckout, createTicketsCrmCheckout } = await import(
+        "@/lib/tickets-checkout"
+      );
+
+      let paymentUrl: string;
+      let providerToken: string | null = null;
+
+      if (hasTicketsCheckout()) {
+        const checkout = await createTicketsCrmCheckout({
+          crmPaymentId: existing.id,
+          amount: parsed.data.amount,
+          currency: parsed.data.currency,
+          description,
+          buyerEmail: user.email,
+        });
+        paymentUrl = checkout.checkout_url;
+        providerToken = checkout.order_id;
+      } else {
+        const { registerP24Transaction } = await import("@/integrations/przelewy24");
+        const { paymentReturnUrl, paymentStatusUrl } = await import("@/lib/brands");
+        const registered = await registerP24Transaction({
+          sessionId,
+          amount: Math.round(parsed.data.amount * 100),
+          currency: parsed.data.currency,
+          description,
+          email: user.email,
+          urlReturn: paymentReturnUrl("/pay/return"),
+          urlStatus: paymentStatusUrl(),
+        });
+        paymentUrl = registered.paymentUrl;
+        providerToken = registered.token;
+      }
+
       const { data: updated, error: updateError } = await db
         .from("payments")
         .update({
           provider: "przelewy24",
           payment_method: "online",
           provider_session_id: sessionId,
-          provider_token: registered.token,
-          payment_url: registered.paymentUrl,
+          provider_token: providerToken,
+          payment_url: paymentUrl,
         })
         .eq("id", existing.id)
         .select("*")
@@ -151,17 +175,10 @@ export async function POST(req: Request) {
 
   // trial / event — payment row without enrollment package activation
   const sessionId = `crm-${nanoid(16)}`;
-  const { registerP24Transaction } = await import("@/integrations/przelewy24");
-  const { paymentReturnUrl, paymentStatusUrl } = await import("@/lib/brands");
-  const registered = await registerP24Transaction({
-    sessionId,
-    amount: Math.round(parsed.data.amount * 100),
-    currency: parsed.data.currency,
-    description: parsed.data.description ?? productKind,
-    email: user.email,
-    urlReturn: paymentReturnUrl("/pay/return"),
-    urlStatus: paymentStatusUrl(),
-  });
+  const description = parsed.data.description ?? productKind;
+  const { hasTicketsCheckout, createTicketsCrmCheckout } = await import(
+    "@/lib/tickets-checkout"
+  );
 
   const { data: payment, error } = await db
     .from("payments")
@@ -175,14 +192,52 @@ export async function POST(req: Request) {
       payment_method: "online",
       product_kind: productKind,
       brand_id: "poet",
-      description: parsed.data.description ?? productKind,
+      description,
       provider_session_id: sessionId,
-      provider_token: registered.token,
-      payment_url: registered.paymentUrl || checkoutUrl(productKind, sessionId),
     })
     .select("*")
     .single();
   if (error) return jsonError(error.message, 500);
 
-  return jsonOk(payment);
+  let paymentUrl: string;
+  let providerToken: string | null = null;
+
+  if (hasTicketsCheckout()) {
+    const checkout = await createTicketsCrmCheckout({
+      crmPaymentId: payment.id,
+      amount: parsed.data.amount,
+      currency: parsed.data.currency,
+      description,
+      buyerEmail: user.email,
+    });
+    paymentUrl = checkout.checkout_url;
+    providerToken = checkout.order_id;
+  } else {
+    const { registerP24Transaction } = await import("@/integrations/przelewy24");
+    const { paymentReturnUrl, paymentStatusUrl } = await import("@/lib/brands");
+    const registered = await registerP24Transaction({
+      sessionId,
+      amount: Math.round(parsed.data.amount * 100),
+      currency: parsed.data.currency,
+      description,
+      email: user.email,
+      urlReturn: paymentReturnUrl("/pay/return"),
+      urlStatus: paymentStatusUrl(),
+    });
+    paymentUrl = registered.paymentUrl || checkoutUrl(productKind, sessionId);
+    providerToken = registered.token;
+  }
+
+  const { data: updated, error: updateError } = await db
+    .from("payments")
+    .update({
+      provider_token: providerToken,
+      payment_url: paymentUrl,
+    })
+    .eq("id", payment.id)
+    .select("*")
+    .single();
+  if (updateError) return jsonError(updateError.message, 500);
+
+  return jsonOk(updated);
 }
