@@ -82,7 +82,7 @@ export default async function CabinetLayout({
       <div className="fade-up">{children}</div>
 
       <nav
-        className="glass-nav fixed bottom-3 left-3 right-3 z-40 mx-auto flex max-w-3xl items-stretch gap-0 overflow-x-auto px-1 py-1.5 md:bottom-4"
+        className="glass-nav fixed bottom-[max(0.75rem,env(safe-area-inset-bottom))] left-3 right-3 z-40 mx-auto flex max-w-3xl items-stretch gap-0 overflow-x-auto px-1 py-1.5 md:bottom-4"
         aria-label="Меню кабинета"
       >
         {DOCK.map((item) => (

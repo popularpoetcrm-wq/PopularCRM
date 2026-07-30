@@ -1,11 +1,14 @@
 #!/usr/bin/env python3
-"""Parse payment signals from group sheets ($ price + $ markers) → JSON.
+"""Parse billing-cycle signals from group sheets ($ price + $ markers) → JSON.
 
-Legend (working hypothesis until studio confirms):
+Confirmed studio legend:
 - Column «$» / price = размер абонемента (PLN / цикл)
-- Имя с «$» на конце = текущий цикл оплачен
-- В ячейках дат «$5» / «1$» = граница/факт оплаты цикла (считаем циклы)
+- В ячейках дат «$5» / «1$» = первое занятие нового платёжного цикла
+- Метка «$» НЕ подтверждает получение денег
 - Лист «Абонемент» почти пуст — источник правды = колонки групп
+
+Импорт создаёт только открытое начисление за текущий цикл. Факт оплаты должен
+приходить из P24/банка или отмечаться администратором отдельно.
 """
 
 from __future__ import annotations
@@ -96,6 +99,7 @@ def parse_sheet(ws, *, brand: str, sheet_name: str, path_name: str) -> list[dict
     from parse_real_tables import name_key, clean_name
 
     has_size = False if brand == "kids" else detect_has_size_col(ws)
+    header = next(ws.iter_rows(min_row=1, max_row=1, values_only=True))
     out: list[dict] = []
     for row in ws.iter_rows(min_row=2, values_only=True):
         raw = row[0] if row else None
@@ -117,36 +121,33 @@ def parse_sheet(ws, *, brand: str, sheet_name: str, path_name: str) -> list[dict
             date_start = 3
 
         raw_s = str(raw).strip()
-        name_paid = raw_s.endswith("$")
+        name_marker = raw_s.endswith("$")
 
-        cycles = 0
-        for cell in row[date_start:]:
+        cycle_dates: list[date] = []
+        for col_index, cell in enumerate(row[date_start:], start=date_start):
             if cell_has_pay_mark(cell):
-                cycles += 1
-        if name_paid and cycles == 0:
+                if col_index < len(header):
+                    raw_date = header[col_index]
+                    if isinstance(raw_date, datetime):
+                        cycle_dates.append(raw_date.date())
+                    elif isinstance(raw_date, date):
+                        cycle_dates.append(raw_date)
+        cycles = sum(1 for cell in row[date_start:] if cell_has_pay_mark(cell))
+        if name_marker and cycles == 0:
             cycles = 1
 
-        if price is None and cycles == 0:
+        if price is None or cycles == 0:
             continue
 
         price = price or 0.0
         pid = uid("person", brand, key)
         gid = uid("group", brand, sheet_name)
         eid = uid("enroll", brand, sheet_name, key)
-        paid_amount = round(price * cycles, 2) if cycles else 0.0
-        due_amount = (
-            round(price, 2)
-            if cycles == 0 and price
-            else round(price * max(cycles, 1), 2)
-        )
-        if cycles > 0:
-            status = "paid"
-            amount = paid_amount
-            amount_paid = paid_amount
-        else:
-            status = "pending"
-            amount = due_amount
-            amount_paid = 0.0
+        # Historical $ markers count completed billing cycles, not money received.
+        # Import one current-cycle charge; never manufacture historical revenue.
+        status = "pending"
+        amount = round(price, 2)
+        amount_paid = 0.0
 
         out.append(
             {
@@ -160,16 +161,17 @@ def parse_sheet(ws, *, brand: str, sheet_name: str, path_name: str) -> list[dict
                 "group_id": gid,
                 "amount": amount,
                 "amount_paid": amount_paid,
+                "due_at": max(cycle_dates).isoformat() if cycle_dates else None,
                 "currency": "PLN",
                 "status": status,
                 "payment_method": "cash",
                 "description": (
-                    f"import {path_name}/{sheet_name} · {display} · "
-                    f"price={price:g} · cycles={cycles}"
+                    f"Абонемент 4 занятия · {display} · "
+                    f"{path_name}/{sheet_name} · cycle_markers={cycles}"
                 ),
                 "price_hint": price,
                 "cycles": cycles,
-                "name_paid_marker": name_paid,
+                "name_cycle_marker": name_marker,
                 "full_name": display,
                 "brand_id": brand,
                 "source_sheet": sheet_name,
@@ -210,22 +212,39 @@ def main() -> None:
     by_id = {p["id"]: p for p in payments}
     payments = list(by_id.values())
 
-    paid = [p for p in payments if p["status"] == "paid"]
+    # Only current students can receive a current-cycle charge. Rows below the
+    # blank separator are historical and must not become new debt.
+    phase1_path = ROOT / "scripts" / "data" / "real-tables-phase1.json"
+    if phase1_path.exists():
+        phase1 = json.loads(phase1_path.read_text(encoding="utf-8"))
+        phase1_enrollments = [
+            *phase1.get("poet", {}).get("enrollments", []),
+            *phase1.get("kids", {}).get("enrollments", []),
+        ]
+        active_enrollments = {
+            row["id"]
+            for row in phase1_enrollments
+            if row.get("status") == "active"
+        }
+        payments = [
+            row for row in payments if row["enrollment_id"] in active_enrollments
+        ]
+
     pending = [p for p in payments if p["status"] == "pending"]
     totals = {
         "payments": len(payments),
-        "paid_rows": len(paid),
+        "paid_rows": 0,
         "pending_rows": len(pending),
-        "revenue_paid": round(sum(p["amount_paid"] for p in paid), 2),
+        "revenue_paid": 0,
         "debt_open": round(sum(p["amount"] - p["amount_paid"] for p in pending), 2),
-        "avg_cycles_paid": round(
-            sum(p["cycles"] for p in paid) / max(1, len(paid)), 2
+        "avg_cycle_markers": round(
+            sum(p["cycles"] for p in payments) / max(1, len(payments)), 2
         ),
     }
 
     out = {
         "phase": 3,
-        "note": "Payments from group $ columns + $ attendance marks as cycles",
+        "note": "$ marks start a 4-lesson billing cycle; they do not prove payment",
         "tenant_id": TENANT,
         "totals": totals,
         "payments": payments,

@@ -23,10 +23,9 @@ type Note = {
 export default function AdminAuditPage() {
   const [audit, setAudit] = useState<Audit[]>([]);
   const [notes, setNotes] = useState<Note[]>([]);
-  const [jobMsg, setJobMsg] = useState("");
 
   async function load() {
-    const res = await fetch("/api/v1/demo/jobs");
+    const res = await fetch("/api/v1/admin/audit");
     const json = await res.json();
     if (json.ok) {
       setAudit(json.data.audit ?? []);
@@ -38,37 +37,29 @@ export default function AdminAuditPage() {
     void load();
   }, []);
 
-  async function tick() {
-    const res = await fetch("/api/v1/demo/jobs", { method: "POST" });
-    const json = await res.json();
-    setJobMsg(
-      json.ok
-        ? `Jobs: makeups=${json.data.expiredMakeups}, packages=${json.data.expiredPackages}, reminders=${json.data.reminders}`
-        : json.error,
-    );
-    await load();
-  }
-
   return (
     <section className="space-y-6">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="font-display text-3xl">Audit & Outbox</h1>
-          <p className="text-fog">Локальный журнал + tick jobs без внешних cron</p>
+          <h1 className="font-display text-3xl">История действий</h1>
+          <p className="text-fog">
+            Изменения в CRM и состояние отправленных уведомлений.
+          </p>
         </div>
-        <button className="btn btn-stage" onClick={tick}>
-          Tick jobs
+        <button type="button" className="btn btn-ghost" onClick={load}>
+          Обновить
         </button>
       </div>
-      {jobMsg ? <p className="text-sm text-stage-deep">{jobMsg}</p> : null}
 
       <div className="grid gap-5 md:grid-cols-2">
         <div className="glass p-5">
-          <h2 className="font-display text-xl">Audit</h2>
+          <h2 className="font-display text-xl">Действия</h2>
           <ul className="mt-4 max-h-[28rem] space-y-3 overflow-auto text-sm">
             {audit.map((a) => (
               <li key={a.id} className="border-b border-white/10 pb-2">
-                <p className="font-mono text-xs text-fog">{a.created_at}</p>
+                <p className="text-xs text-fog">
+                  {new Date(a.created_at).toLocaleString("ru-RU")}
+                </p>
                 <p className="font-semibold">{a.action}</p>
                 <p className="text-fog">
                   {a.entity_type} {a.entity_id ?? ""} · {a.actor}

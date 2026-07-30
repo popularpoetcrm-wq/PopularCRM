@@ -4,6 +4,7 @@ import { getSessionUser, isAdmin } from "@/lib/auth";
 import { getDemoState } from "@/lib/demo-store";
 import { notify, remindAllDebtors } from "@/lib/demo-ops";
 import { getEnv } from "@/lib/env";
+import { hasSupabase } from "@/lib/env";
 
 const bodySchema = z.object({
   paymentId: z.string().optional(),
@@ -16,6 +17,22 @@ export async function POST(req: Request) {
   if (!user || !isAdmin(user.roles)) return jsonError("Forbidden", 403);
   const parsed = bodySchema.safeParse(await req.json().catch(() => ({})));
   if (!parsed.success) return jsonError("Invalid payload");
+
+  if (hasSupabase() && user.mode === "supabase") {
+    try {
+      const { getAdminClient } = await import("@/lib/supabase/admin");
+      const { queuePaymentReminders } = await import("@/domain/payments");
+      return jsonOk(
+        await queuePaymentReminders(getAdminClient(), {
+          tenantId: user.tenantId,
+          paymentId: parsed.data.all ? undefined : parsed.data.paymentId,
+          actorPersonId: user.personId,
+        }),
+      );
+    } catch (e) {
+      return jsonError(e instanceof Error ? e.message : "fail", 400);
+    }
+  }
 
   if (parsed.data.all) {
     return jsonOk(remindAllDebtors(user.fullName));

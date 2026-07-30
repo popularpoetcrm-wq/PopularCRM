@@ -125,7 +125,8 @@ function SessionsArchiveInner() {
       {!busy && !sessions.length ? (
         <div className="glass p-8 text-center text-fog">Нет занятий за этот месяц.</div>
       ) : (
-        <div className="glass overflow-x-auto">
+        <>
+        <div className="glass hidden overflow-x-auto sm:block">
           <table className="w-full min-w-[40rem] text-left text-sm">
             <thead className="border-b border-white/10 text-fog">
               <tr>
@@ -165,6 +166,40 @@ function SessionsArchiveInner() {
             </tbody>
           </table>
         </div>
+        <ul className="space-y-3 sm:hidden">
+          {sessions.map((s) => {
+            const day = s.starts_at.slice(0, 10);
+            return (
+              <li key={s.id} className="glass p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="font-semibold">{s.group_title}</p>
+                    <p className="mt-1 text-sm text-fog">
+                      {format(new Date(s.starts_at), "d MMMM · HH:mm", {
+                        locale: ru,
+                      })}
+                    </p>
+                  </div>
+                  <span className="badge shrink-0">
+                    {STATUS_RU[s.status] ?? s.status}
+                  </span>
+                </div>
+                <div className="mt-4 flex items-center justify-between gap-3">
+                  <p className="text-sm text-fog">
+                    Пришли {s.present_count} · не пришли {s.absent_count}
+                  </p>
+                  <Link
+                    href={`/admin/attendance?date=${day}&session=${s.id}`}
+                    className="btn btn-stage text-sm"
+                  >
+                    Отметить
+                  </Link>
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+        </>
       )}
     </section>
   );

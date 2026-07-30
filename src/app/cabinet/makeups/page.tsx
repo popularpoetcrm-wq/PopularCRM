@@ -13,6 +13,14 @@ type Makeup = {
 };
 type Session = { id: string; title: string; starts_at: string };
 
+const STATUS_LABELS: Record<string, string> = {
+  available: "можно использовать",
+  booked: "забронирована",
+  used: "использована",
+  expired: "срок истёк",
+  burned: "сгорела",
+};
+
 export default function MakeupsPage() {
   const [makeups, setMakeups] = useState<Makeup[]>([]);
   const [sessions, setSessions] = useState<Session[]>([]);
@@ -55,7 +63,7 @@ export default function MakeupsPage() {
     setMessage(
       json.ok
         ? json.data.creditStatus === "burned"
-          ? "Отмена после cutoff — отработка сгорела."
+          ? "Бронь отменена слишком поздно — отработка сгорела."
           : "Бронь отменена, отработка снова доступна."
         : json.error,
     );
@@ -67,7 +75,8 @@ export default function MakeupsPage() {
       <div>
         <h1 className="font-display text-3xl">Отработки</h1>
         <p className="text-fog">
-          Cutoff {STUDIO_POLICY.makeupCutoffHours} ч · нет мест = отказ · одна отработка = одна бронь
+          Бронируй и отменяй минимум за {STUDIO_POLICY.makeupCutoffHours} ч.
+          Одна отработка даёт одно дополнительное занятие.
         </p>
       </div>
       {message ? <p className="text-sm text-stage-deep">{message}</p> : null}
@@ -92,7 +101,7 @@ export default function MakeupsPage() {
                       : "badge-warn"
                 }`}
               >
-                {m.status}
+                {STATUS_LABELS[m.status] ?? m.status}
               </span>
             </div>
 

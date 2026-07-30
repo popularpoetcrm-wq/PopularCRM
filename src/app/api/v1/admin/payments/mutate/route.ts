@@ -9,6 +9,7 @@ import {
 } from "@/lib/demo-ops";
 import { cookies } from "next/headers";
 import type { BrandId } from "@/lib/brands";
+import { hasSupabase } from "@/lib/env";
 
 const upsertSchema = z.object({
   action: z.literal("upsert"),
@@ -46,6 +47,29 @@ export async function POST(req: Request) {
   if (body.action === "upsert") {
     const parsed = upsertSchema.safeParse(body);
     if (!parsed.success) return jsonError("Invalid payload");
+    if (hasSupabase() && user.mode === "supabase") {
+      try {
+        const { getAdminClient } = await import("@/lib/supabase/admin");
+        const { upsertManualCharge } = await import("@/domain/payments");
+        return jsonOk(
+          await upsertManualCharge(getAdminClient(), {
+            tenantId: user.tenantId,
+            enrollmentId: parsed.data.enrollment_id,
+            payerPersonId: parsed.data.payer_person_id,
+            amount: parsed.data.amount,
+            amountPaid: parsed.data.amount_paid,
+            method:
+              parsed.data.payment_method === "online"
+                ? "transfer"
+                : parsed.data.payment_method,
+            description: parsed.data.description,
+            actorPersonId: user.personId,
+          }),
+        );
+      } catch (e) {
+        return jsonError(e instanceof Error ? e.message : "fail", 400);
+      }
+    }
     return jsonOk(
       upsertPaymentAmount({ ...parsed.data, brand_id: brandId, actor: user.fullName }),
     );
@@ -53,11 +77,35 @@ export async function POST(req: Request) {
   if (body.action === "partial") {
     const parsed = partialSchema.safeParse(body);
     if (!parsed.success) return jsonError("Invalid payload");
+    if (hasSupabase() && user.mode === "supabase") {
+      try {
+        const { getAdminClient } = await import("@/lib/supabase/admin");
+        const { addManualPayment } = await import("@/domain/payments");
+        return jsonOk(
+          await addManualPayment(getAdminClient(), {
+            tenantId: user.tenantId,
+            paymentId: parsed.data.payment_id,
+            addAmount: parsed.data.add_amount,
+            method:
+              parsed.data.method === "online" ? "transfer" : parsed.data.method,
+            actorPersonId: user.personId,
+          }),
+        );
+      } catch (e) {
+        return jsonError(e instanceof Error ? e.message : "fail", 400);
+      }
+    }
     return jsonOk(recordPartialPayment({ ...parsed.data, actor: user.fullName }));
   }
   if (body.action === "link") {
     const parsed = linkSchema.safeParse(body);
     if (!parsed.success) return jsonError("Invalid payload");
+    if (hasSupabase() && user.mode === "supabase") {
+      return jsonError(
+        "Создай ссылку из карточки конкретного начисления",
+        400,
+      );
+    }
     return jsonOk(
       createOnlinePaymentLink({
         ...parsed.data,

@@ -127,7 +127,11 @@ export default function AdminHome() {
     });
     const json = await res.json();
     setBusy(false);
-    setJobMsg(json.ok ? `Напоминания в inbox: ${json.data.reminded}` : json.error);
+    setJobMsg(
+      json.ok
+        ? `В очередь поставлено напоминаний: ${json.data.reminded}`
+        : json.error,
+    );
   }
 
   async function generateSessions() {
@@ -169,7 +173,7 @@ export default function AdminHome() {
       <section className="glass glass-strong p-5 sm:p-6">
         <h1 className="font-display text-3xl sm:text-4xl">Рабочий день</h1>
         <p className="mt-2 text-fog">
-          Только выбранный день: кто придёт, риск отмены, быстрый переход к отметкам.
+          Занятия, ожидаемый состав, оплаты и задачи на выбранный день.
         </p>
         <div className="mt-4 flex flex-wrap items-end gap-3">
           <label className="text-sm font-semibold">
@@ -238,7 +242,7 @@ export default function AdminHome() {
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <Link href="/admin/insights" className="glass block p-5 transition hover:bg-white/10">
           <p className="text-sm text-fog">Сводка</p>
-          <p className="mt-2 text-lg font-semibold">Касса · советы</p>
+          <p className="mt-2 text-lg font-semibold">Касса и задачи</p>
         </Link>
         <Link href="/admin/groups" className="glass block p-5 transition hover:bg-white/10">
           <p className="text-sm text-fog">Группы</p>

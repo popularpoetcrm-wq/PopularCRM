@@ -151,7 +151,7 @@ export function markAttendanceDemo(input: {
   const session = state.sessions.find((s) => s.id === input.sessionId);
   if (!session) throw new Error("Session not found");
 
-  let items = [...input.items];
+  const items = [...input.items];
 
   if (input.fillDefaultsPresent) {
     const roster = state.enrollments.filter(

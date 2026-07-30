@@ -8,6 +8,7 @@ type Note = {
   template_code: string;
   text: string;
   channel: string;
+  status: string;
   created_at: string;
 };
 
@@ -16,30 +17,33 @@ export default function InboxPage() {
 
   useEffect(() => {
     void (async () => {
-      const res = await fetch("/api/v1/demo/jobs");
+      const res = await fetch("/api/v1/me/notifications");
       const json = await res.json();
-      if (json.ok) setNotes(json.data.notifications ?? []);
+      if (json.ok) setNotes(json.data ?? []);
     })();
   }, []);
 
   return (
     <section className="space-y-6">
       <div>
-        <h1 className="font-display text-3xl">Входящие</h1>
-        <p className="text-fog">Локальный inbox вместо Telegram (пока без ключей)</p>
+        <h1 className="font-display text-3xl">Уведомления</h1>
+        <p className="text-fog">
+          Оплаты, изменения расписания, отработки и важные сообщения студии.
+        </p>
       </div>
       <ul className="space-y-3">
         {notes.map((n) => (
           <li key={n.id} className="glass p-5">
             <p className="text-xs text-fog">
-              {n.channel} · {n.template_code} · {new Date(n.created_at).toLocaleString()}
+              {n.status === "sent" ? "отправлено" : "в очереди"} ·{" "}
+              {new Date(n.created_at).toLocaleString("ru-RU")}
             </p>
             <p className="mt-2">{n.text}</p>
           </li>
         ))}
         {!notes.length ? (
           <li className="glass p-8 text-center text-fog">
-            Пусто. Отметь пропуск или сделай оплату — появятся сообщения.
+            Новых уведомлений пока нет.
           </li>
         ) : null}
       </ul>

@@ -107,6 +107,7 @@ function packageFromRow(
     id: string;
     enrollment_id: string;
     status: string;
+    activated_at?: string | null;
     expires_at: string | null;
     plan_snapshot: { lessons_count?: number } | null;
   },
@@ -124,7 +125,8 @@ function packageFromRow(
     status: pkg.status,
     credits_available: available,
     credits_total: total,
-    expires_at: pkg.expires_at ?? new Date().toISOString(),
+    activated_at: pkg.activated_at ?? null,
+    expires_at: pkg.expires_at ?? null,
     plan: pkg.plan_snapshot,
   };
 }
@@ -180,7 +182,7 @@ export async function getCabinetDashboardDb(personId: string, tenantId: string) 
       enrollmentIds.length
         ? db
             .from("student_packages")
-            .select("id, enrollment_id, status, expires_at, plan_snapshot")
+            .select("id, enrollment_id, status, activated_at, expires_at, plan_snapshot")
             .in("enrollment_id", enrollmentIds)
             .eq("tenant_id", tenantId)
         : Promise.resolve({ data: [] as Array<Record<string, unknown>> }),
@@ -282,6 +284,7 @@ export async function getCabinetDashboardDb(personId: string, tenantId: string) 
     id: string;
     enrollment_id: string;
     status: string;
+    activated_at?: string | null;
     expires_at: string | null;
     plan_snapshot: { lessons_count?: number } | null;
   }>;

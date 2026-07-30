@@ -1,5 +1,5 @@
 import { cookies } from "next/headers";
-import { jsonError, jsonOk } from "@/lib/api";
+import { getRequestId, jsonError, jsonOk } from "@/lib/api";
 import { getSessionUser, isAdmin, isStaff } from "@/lib/auth";
 import { getDayBoard, finalizeSessionPresentDefaults } from "@/lib/demo-attendance";
 import { remindAllDebtors } from "@/lib/demo-ops";
@@ -41,11 +41,36 @@ export async function POST(req: Request) {
 
   if (hasSupabase() && user.mode === "supabase") {
     if (body?.action === "finalize") {
-      return jsonError("Finalize в Supabase — следующим шагом (пока demo)", 501);
+      if (!body.sessionId) return jsonError("sessionId required");
+      try {
+        const { getAdminClient } = await import("@/lib/supabase/admin");
+        const { finalizeSessionDb } = await import("@/domain/attendance");
+        return jsonOk(
+          await finalizeSessionDb(getAdminClient(), {
+            tenantId: user.tenantId,
+            sessionId: String(body.sessionId),
+            actorPersonId: user.personId,
+            requestId: getRequestId(req),
+          }),
+        );
+      } catch (e) {
+        return jsonError(e instanceof Error ? e.message : "fail", 400);
+      }
     }
     if (body?.action === "remind_debtors") {
       if (!isAdmin(user.roles)) return jsonError("Forbidden", 403);
-      return jsonError("Reminders в Supabase notifications — следующим шагом", 501);
+      try {
+        const { getAdminClient } = await import("@/lib/supabase/admin");
+        const { queuePaymentReminders } = await import("@/domain/payments");
+        return jsonOk(
+          await queuePaymentReminders(getAdminClient(), {
+            tenantId: user.tenantId,
+            actorPersonId: user.personId,
+          }),
+        );
+      } catch (e) {
+        return jsonError(e instanceof Error ? e.message : "fail", 400);
+      }
     }
   }
 

@@ -13,6 +13,7 @@ type Payment = {
   payment_method?: string | null;
   description?: string | null;
   payment_url?: string;
+  enrollment_id?: string;
   paid_at?: string | null;
   created_at?: string;
 };
@@ -51,14 +52,17 @@ export default function PaymentsPage() {
     void load();
   }, []);
 
-  async function createLink() {
+  async function createLink(payment: Payment) {
     setMessage("");
+    const remaining = Math.max(0, payment.amount - payment.amount_paid);
     const res = await fetch("/api/v1/payments/p24/links", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        amount: 400,
-        description: "Пакет 4 занятий",
+        paymentId: payment.id,
+        enrollmentId: payment.enrollment_id,
+        amount: remaining,
+        description: payment.description || "Абонемент на 4 занятия",
       }),
     });
     const json = await res.json();
@@ -67,20 +71,19 @@ export default function PaymentsPage() {
       return;
     }
     setMessage("Ссылка на оплату создана.");
-    if (json.data.payment_url) window.open(json.data.payment_url, "_blank");
+    if (json.data.payment_url) window.location.assign(json.data.payment_url);
     await load();
   }
 
   return (
     <section className="space-y-6">
-      <div className="flex flex-wrap items-end justify-between gap-4">
+      <div>
         <div>
           <h1 className="font-display text-3xl">Оплаты</h1>
-          <p className="text-fog">Пакет, долг, история. $ в таблице студии = оплата цикла.</p>
+          <p className="text-fog">
+            Начисления за абонементы, открытая сумма и история оплат.
+          </p>
         </div>
-        <button className="btn btn-primary" onClick={createLink}>
-          Оплатить пакет (P24)
-        </button>
       </div>
       {message ? <p className="text-sm text-stage-deep">{message}</p> : null}
 
@@ -141,6 +144,14 @@ export default function PaymentsPage() {
                 <a className="btn btn-ghost text-sm" href={p.payment_url} target="_blank" rel="noreferrer">
                   Оплатить
                 </a>
+              ) : ["pending", "partial"].includes(p.status) && p.enrollment_id ? (
+                <button
+                  type="button"
+                  className="btn btn-primary text-sm"
+                  onClick={() => createLink(p)}
+                >
+                  Оплатить онлайн
+                </button>
               ) : null}
             </li>
           ))

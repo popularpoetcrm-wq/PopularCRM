@@ -17,14 +17,42 @@ export async function requestInvoice(
 ) {
   const { data: payment, error } = await db
     .from("payments")
-    .select("*")
+    .select("*, enrollments(student_person_id)")
     .eq("id", params.paymentId)
     .eq("tenant_id", params.tenantId)
     .single();
   if (error) throw error;
-  if (!["paid", "partial"].includes(payment.status)) {
-    throw new Error("Invoice can be requested only for paid/partial payments");
+  const enrollment = Array.isArray(payment.enrollments)
+    ? payment.enrollments[0]
+    : payment.enrollments;
+  const studentPersonId = enrollment?.student_person_id as string | undefined;
+  if (
+    payment.payer_person_id !== params.buyerPersonId &&
+    studentPersonId !== params.buyerPersonId
+  ) {
+    const { data: relation } = studentPersonId
+      ? await db
+          .from("student_contacts")
+          .select("id")
+          .eq("student_person_id", studentPersonId)
+          .eq("contact_person_id", params.buyerPersonId)
+          .eq("can_pay", true)
+          .maybeSingle()
+      : { data: null };
+    if (!relation) throw new Error("Нет доступа к этому начислению");
   }
+  if (!["pending", "paid", "partial"].includes(payment.status)) {
+    throw new Error("Для этого начисления нельзя выставить фактуру");
+  }
+
+  const { data: existing } = await db
+    .from("invoices")
+    .select("*")
+    .eq("tenant_id", params.tenantId)
+    .eq("payment_id", params.paymentId)
+    .neq("status", "cancelled")
+    .maybeSingle();
+  if (existing) return existing;
 
   const { data: invoice, error: invErr } = await db
     .from("invoices")

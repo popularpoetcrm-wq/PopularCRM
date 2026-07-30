@@ -5,7 +5,6 @@ import { Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { format } from "date-fns";
 import { ru } from "date-fns/locale";
-import { STUDIO_POLICY } from "@/lib/studio-policy";
 import {
   ATTENDANCE_STATUS_LABELS,
   addCalendarDays,
@@ -170,7 +169,7 @@ function AttendanceInner() {
       <div>
         <h1 className="font-display text-3xl">Посещаемость</h1>
         <p className="text-fog">
-          Карточка ученика: кто это, стата, Telegram. Отметка — чипами справа.
+          Проверь состав, отметь присутствие и закрой проведённое занятие.
         </p>
       </div>
 
@@ -209,7 +208,7 @@ function AttendanceInner() {
               <option key={s.id} value={s.id}>
                 {s.group_title} ·{" "}
                 {format(new Date(s.starts_at), "d MMM HH:mm", { locale: ru })}
-                {s.will_hold === false ? " · ОТМЕНА?" : ""}
+                {s.will_hold === false ? " · мало участников" : ""}
               </option>
             ))}
           </select>
@@ -228,7 +227,7 @@ function AttendanceInner() {
             <span className="badge badge-ok">Закрыто</span>
           ) : current.will_hold === false ? (
             <span className="badge badge-danger">
-              Мало людей (&lt;{STUDIO_POLICY.minAttendeesToHold}) — отменится
+              Мало участников — проверь, состоится ли занятие
             </span>
           ) : (
             <span className="badge badge-ok">Занятие состоится</span>

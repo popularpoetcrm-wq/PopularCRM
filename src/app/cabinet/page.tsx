@@ -40,6 +40,7 @@ export default function CabinetHome() {
   const [data, setData] = useState<Dash | null>(null);
   const [msg, setMsg] = useState("");
   const [busy, setBusy] = useState(false);
+  const [now] = useState(() => Date.now());
 
   async function load() {
     const res = await fetch("/api/v1/me/dashboard");
@@ -65,7 +66,7 @@ export default function CabinetHome() {
   const canSkip =
     next &&
     !skipped &&
-    new Date(next.starts_at).getTime() - Date.now() >=
+    new Date(next.starts_at).getTime() - now >=
       STUDIO_POLICY.absentNotifyCutoffHours * 60 * 60 * 1000;
 
   async function cantAttend() {
@@ -103,7 +104,7 @@ export default function CabinetHome() {
         <p className="mt-2 text-fog">
           {(data.children?.length ?? 0) > 0
             ? "Кабинет родителя: расписание и оплаты детей."
-            : `По умолчанию ты на занятии. «Не приду» — только явно, за ${STUDIO_POLICY.absentNotifyCutoffHours}+ ч.`}
+            : `Мы считаем, что ты придёшь. Если планы изменились, сообщи минимум за ${STUDIO_POLICY.absentNotifyCutoffHours} ч.`}
         </p>
       </section>
 
@@ -176,7 +177,7 @@ export default function CabinetHome() {
             </Link>
           </div>
           <p className="mt-3 text-xs text-fog">
-            Если в группе останется 1 человек — занятие отменится автоматически.
+            Если людей окажется слишком мало, студия предупредит об отмене.
           </p>
           {msg ? <p className="mt-3 text-sm text-stage-deep">{msg}</p> : null}
         </section>
@@ -223,7 +224,7 @@ export default function CabinetHome() {
         {[
           { href: "/cabinet/makeups", label: "Отработки" },
           { href: "/cabinet/consents", label: "Согласия" },
-          { href: "/cabinet/invoices", label: "Счета" },
+          { href: "/cabinet/invoices", label: "Фактуры" },
           { href: "/cabinet/profile", label: "Профиль и фото" },
         ].map((l) => (
           <Link key={l.href} href={l.href} className="btn btn-ghost w-full text-sm">

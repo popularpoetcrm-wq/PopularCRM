@@ -44,16 +44,6 @@ const payload = JSON.parse(
 const TENANT = payload.tenant_id;
 const PLAN = payload.plan_id;
 
-async function ok(label, promise) {
-  const { data, error } = await promise;
-  if (error) {
-    console.error("FAIL", label, error.message);
-    return { data: null, error };
-  }
-  console.log("OK", label);
-  return { data, error: null };
-}
-
 async function upsertChunk(table, rows, onConflict, label) {
   const size = 50;
   for (let i = 0; i < rows.length; i += size) {

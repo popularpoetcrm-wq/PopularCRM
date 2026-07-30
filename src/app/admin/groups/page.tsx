@@ -71,11 +71,12 @@ export default function AdminGroupsPage() {
         status: string;
         payment_method: string;
       }>;
-      const payByEnroll = new Map(
-        payments
-          .filter((pay) => pay.enrollment_id)
-          .map((pay) => [pay.enrollment_id, pay]),
-      );
+      const payByEnroll = new Map<string, (typeof payments)[number]>();
+      for (const payment of payments) {
+        if (payment.enrollment_id && !payByEnroll.has(payment.enrollment_id)) {
+          payByEnroll.set(payment.enrollment_id, payment);
+        }
+      }
 
       for (const enr of s.data.enrollments ?? []) {
         const person = people.get(enr.student_person_id);
@@ -205,7 +206,9 @@ export default function AdminGroupsPage() {
         enrollment_id: row.enrollment_id,
         payer_person_id: row.student_person_id,
         amount,
-        amount_paid: row.amount_paid ?? 0,
+        amount_paid: ["pending", "partial"].includes(row.payment_status ?? "")
+          ? row.amount_paid ?? 0
+          : 0,
         payment_method: row.payment_method ?? "cash",
         description: `Пакет — ${row.full_name}`,
       }),
@@ -350,7 +353,7 @@ export default function AdminGroupsPage() {
                 </button>
               </div>
             </div>
-            <div className="overflow-x-auto">
+            <div className="hidden overflow-x-auto md:block">
               <table className="table-glass min-w-full">
                 <thead>
                   <tr>
@@ -469,6 +472,114 @@ export default function AdminGroupsPage() {
                 </tbody>
               </table>
             </div>
+            <ul className="divide-y divide-white/10 md:hidden">
+              {members.length === 0 ? (
+                <li className="p-5 text-fog">Пока никого в группе</li>
+              ) : (
+                members.map((row) => (
+                  <li key={row.enrollment_id} className="space-y-4 p-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <Link
+                          href={`/admin/students/${row.student_person_id}`}
+                          className="break-words font-semibold underline"
+                        >
+                          {row.full_name}
+                        </Link>
+                        <p className="mt-1 text-xs text-fog">
+                          ДР {formatBirthDay(row.birth_date)} · футболка{" "}
+                          {row.tshirt_size ?? "—"}
+                        </p>
+                      </div>
+                      <span className="badge shrink-0">
+                        {row.payment_status === "paid"
+                          ? "оплачено"
+                          : row.payment_status === "pending"
+                            ? "ждём оплату"
+                            : row.payment_status === "partial"
+                              ? "частично"
+                              : "нет начисления"}
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3">
+                      <label className="text-xs font-semibold text-fog">
+                        В группе
+                        <select
+                          className="input mt-1 text-sm text-foreground"
+                          value={row.enrollment_status ?? "active"}
+                          onChange={(e) =>
+                            void setMemberStatus(
+                              row,
+                              e.target.value as "active" | "paused" | "ended",
+                            )
+                          }
+                        >
+                          <option value="active">ходит</option>
+                          <option value="paused">на паузе</option>
+                          <option value="ended">не ходит</option>
+                        </select>
+                      </label>
+                      <label className="text-xs font-semibold text-fog">
+                        Сумма, PLN
+                        <input
+                          className="input mt-1 text-foreground"
+                          inputMode="decimal"
+                          defaultValue={row.amount ?? 400}
+                          onChange={(e) =>
+                            setAmounts((amountMap) => ({
+                              ...amountMap,
+                              [row.enrollment_id]: e.target.value,
+                            }))
+                          }
+                        />
+                      </label>
+                    </div>
+
+                    <p className="text-sm text-fog">
+                      Внесено: <strong className="text-foreground">{row.amount_paid ?? 0} PLN</strong>
+                    </p>
+
+                    <select
+                      className="input text-sm"
+                      defaultValue=""
+                      disabled={!active}
+                      onChange={(e) => {
+                        const to = e.target.value;
+                        e.target.value = "";
+                        if (to) void moveStudent(row, to);
+                      }}
+                    >
+                      <option value="">Перевести в другую группу…</option>
+                      {activeGroups
+                        .filter((item) => item.id !== g.id)
+                        .map((item) => (
+                          <option key={item.id} value={item.id}>
+                            {item.title}
+                          </option>
+                        ))}
+                    </select>
+
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        className="btn btn-ghost text-sm"
+                        type="button"
+                        onClick={() => saveAmount(row)}
+                      >
+                        Сохранить сумму
+                      </button>
+                      <button
+                        className="btn btn-stage text-sm"
+                        type="button"
+                        onClick={() => addPartial(row)}
+                      >
+                        Внести 100 PLN
+                      </button>
+                    </div>
+                  </li>
+                ))
+              )}
+            </ul>
           </article>
         );
       })}

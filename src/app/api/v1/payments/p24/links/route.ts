@@ -8,6 +8,7 @@ import { checkoutUrl, type BrandId, type ProductKind } from "@/lib/brands";
 import { cookies } from "next/headers";
 
 const bodySchema = z.object({
+  paymentId: z.string().optional(),
   enrollmentId: z.string().uuid().or(z.string().min(1)).optional(),
   planId: z.string().optional(),
   payerPersonId: z.string().optional(),
@@ -80,6 +81,55 @@ export async function POST(req: Request) {
       parsed.data.payerPersonId !== user.personId
     ) {
       return jsonError("Forbidden", 403);
+    }
+
+    if (parsed.data.paymentId) {
+      const { data: existing, error: existingError } = await db
+        .from("payments")
+        .select("*")
+        .eq("id", parsed.data.paymentId)
+        .eq("tenant_id", user.tenantId)
+        .single();
+      if (existingError || !existing) {
+        return jsonError("Начисление не найдено", 404);
+      }
+      if (
+        !isAdmin(user.roles) &&
+        existing.payer_person_id !== user.personId &&
+        enrollment.student_person_id !== user.personId
+      ) {
+        return jsonError("Forbidden", 403);
+      }
+      if (!["pending", "partial"].includes(existing.status)) {
+        return jsonError("Это начисление уже закрыто", 400);
+      }
+
+      const sessionId = `crm-${nanoid(16)}`;
+      const { registerP24Transaction } = await import("@/integrations/przelewy24");
+      const { paymentReturnUrl, paymentStatusUrl } = await import("@/lib/brands");
+      const registered = await registerP24Transaction({
+        sessionId,
+        amount: Math.round(parsed.data.amount * 100),
+        currency: parsed.data.currency,
+        description: parsed.data.description ?? existing.description ?? "Абонемент",
+        email: user.email,
+        urlReturn: paymentReturnUrl("/pay/return"),
+        urlStatus: paymentStatusUrl(),
+      });
+      const { data: updated, error: updateError } = await db
+        .from("payments")
+        .update({
+          provider: "przelewy24",
+          payment_method: "online",
+          provider_session_id: sessionId,
+          provider_token: registered.token,
+          payment_url: registered.paymentUrl,
+        })
+        .eq("id", existing.id)
+        .select("*")
+        .single();
+      if (updateError) return jsonError(updateError.message, 500);
+      return jsonOk(updated);
     }
 
     const result = await createPaymentLink(db, {

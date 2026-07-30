@@ -189,12 +189,9 @@ export async function createSaldeoInvoice(
 ): Promise<SaldeoInvoiceResult> {
   const env = getEnv();
   if (!env.SALDEO_USERNAME || !env.SALDEO_API_TOKEN) {
-    return {
-      saldeoInvoiceId: `dev-saldeo-${input.externalId.slice(0, 8)}`,
-      invoiceNumber: `FV/DEV/${Date.now()}`,
-      pdfUrl: `${env.NEXT_PUBLIC_APP_URL}/cabinet/invoices?preview=${input.externalId}`,
-      stub: true,
-    };
+    throw new Error(
+      "Saldeo не настроен: нужны SALDEO_USERNAME и SALDEO_API_TOKEN",
+    );
   }
 
   const xml = buildInvoiceAddXml(input);

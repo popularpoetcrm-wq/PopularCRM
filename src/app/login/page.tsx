@@ -87,8 +87,8 @@ export default function LoginPage() {
       <div className="glass glass-strong fade-up p-8">
         <h1 className="font-display text-3xl">Вход</h1>
         <p className="mt-2 text-sm text-fog">
-          Вводишь email → получаешь код из 6 цифр на почту и/или в Telegram (если
-          бот привязан). Без кода в кабинет не пускаем.
+          Введи email — пришлём шестизначный код на почту или в Telegram, если
+          бот уже привязан.
         </p>
         <p className="mt-2 text-sm text-fog">
           Ещё нет email в CRM?{" "}

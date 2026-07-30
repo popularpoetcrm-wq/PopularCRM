@@ -33,6 +33,14 @@ export const envSchema = z.object({
   RESEND_API_KEY: z.string().optional(),
   EMAIL_FROM: z.string().optional().default("Studio CRM <noreply@example.com>"),
 
+  /** Shared with PopularTickets for creating checkout sessions. */
+  CRM_CHECKOUT_SECRET: z.string().optional(),
+  /** Preferred secret for Tickets→CRM paid webhooks (falls back to CRM_CHECKOUT_SECRET). */
+  CRM_WEBHOOK_SECRET: z.string().optional(),
+  /** Base URL of PopularTickets (no trailing slash). */
+  TICKETS_PUBLIC_URL: z.string().optional(),
+  NEXT_PUBLIC_TICKETS_URL: z.string().optional(),
+
   CRON_SECRET: z.string().optional(),
 });
 

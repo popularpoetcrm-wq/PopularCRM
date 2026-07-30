@@ -36,6 +36,71 @@ export async function enqueueNotification(
   return data;
 }
 
+export async function resolveNotificationRecipient(
+  db: SupabaseClient,
+  personId: string,
+) {
+  const { data: person } = await db
+    .from("persons")
+    .select("id, email, is_minor")
+    .eq("id", personId)
+    .maybeSingle();
+
+  let recipient = person;
+  if (person?.is_minor) {
+    const { data: contact } = await db
+      .from("student_contacts")
+      .select("contact_person_id, persons:contact_person_id(id, email, is_minor)")
+      .eq("student_person_id", personId)
+      .eq("can_receive_notifications", true)
+      .order("is_primary", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    const linked = Array.isArray(contact?.persons)
+      ? contact?.persons[0]
+      : contact?.persons;
+    if (linked) recipient = linked;
+  }
+
+  if (!recipient) throw new Error("Получатель уведомления не найден");
+  const { data: telegram } = await db
+    .from("telegram_identities")
+    .select("chat_id")
+    .eq("person_id", recipient.id)
+    .not("chat_id", "is", null)
+    .maybeSingle();
+
+  return {
+    personId: recipient.id as string,
+    channel: telegram?.chat_id ? ("telegram" as const) : ("email" as const),
+    email: recipient.email as string | null,
+  };
+}
+
+export async function enqueueBestNotification(
+  db: SupabaseClient,
+  params: {
+    tenantId: string;
+    recipientPersonId: string;
+    templateCode: string;
+    payload?: Record<string, unknown>;
+    scheduledAt?: Date;
+  },
+) {
+  const recipient = await resolveNotificationRecipient(
+    db,
+    params.recipientPersonId,
+  );
+  if (recipient.channel === "email" && !recipient.email) {
+    throw new Error("У получателя нет Telegram или email");
+  }
+  return enqueueNotification(db, {
+    ...params,
+    recipientPersonId: recipient.personId,
+    channel: recipient.channel,
+  });
+}
+
 export function renderTemplate(
   code: string,
   payload: Record<string, unknown>,
@@ -55,6 +120,8 @@ export function renderTemplate(
       return `Счёт готов${payload.invoiceNumber ? `: ${payload.invoiceNumber}` : ""}.${payload.pdfUrl ? `\n${payload.pdfUrl}` : ""}`;
     case "schedule.changed":
       return `Изменение в расписании: ${payload.message ?? "проверь кабинет."}`;
+    case "birthdays.digest":
+      return `Ближайшие дни рождения:\n${payload.list ?? "—"}`;
     default:
       return `Уведомление: ${code}`;
   }

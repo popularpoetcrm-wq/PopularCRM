@@ -1,8 +1,9 @@
-import { addDays } from "date-fns";
+import { addDays, differenceInMinutes } from "date-fns";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { BulkAttendanceItem, PackagePlanSnapshot } from "@/lib/types/domain";
 import { writeAudit } from "@/domain/audit";
 import { enqueueNotification } from "@/domain/notifications";
+import { STUDIO_POLICY, cutoffMinutes } from "@/lib/studio-policy";
 
 async function findActivePackageForEnrollment(
   db: SupabaseClient,
@@ -40,7 +41,7 @@ async function consumeRegularCredit(
   if (error) throw error;
   if (!credit) return null;
 
-  const { error: updErr } = await db
+  const { data: consumed, error: updErr } = await db
     .from("lesson_credits")
     .update({
       status: "consumed",
@@ -48,9 +49,26 @@ async function consumeRegularCredit(
       consumed_attendance_id: params.attendanceId,
     })
     .eq("id", credit.id)
-    .eq("status", "available");
+    .eq("status", "available")
+    .select("*")
+    .maybeSingle();
   if (updErr) throw updErr;
-  return credit;
+  return consumed;
+}
+
+async function notificationRecipient(
+  db: SupabaseClient,
+  studentPersonId: string,
+) {
+  const { data: contact } = await db
+    .from("student_contacts")
+    .select("contact_person_id")
+    .eq("student_person_id", studentPersonId)
+    .eq("can_receive_notifications", true)
+    .order("is_primary", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  return contact?.contact_person_id ?? studentPersonId;
 }
 
 async function maybeCreateMakeup(
@@ -100,13 +118,21 @@ async function maybeCreateMakeup(
 
   await enqueueNotification(db, {
     tenantId: params.tenantId,
-    recipientPersonId: params.studentPersonId,
+    recipientPersonId: await notificationRecipient(db, params.studentPersonId),
     channel: "telegram",
     templateCode: "makeup.created",
     payload: { makeupCreditId: data.id, validUntil: validUntil.toISOString() },
   });
 
   return data;
+}
+
+function shouldCreateMakeup(plan: PackagePlanSnapshot, status: string) {
+  if (plan.makeup_policy === "NEVER") return false;
+  if (plan.makeup_policy === "ONLY_IF_NOTIFIED") {
+    return status === "absent_notified";
+  }
+  return ["absent", "absent_notified"].includes(status);
 }
 
 export async function bulkUpsertAttendance(
@@ -120,8 +146,38 @@ export async function bulkUpsertAttendance(
   },
 ) {
   const results = [];
+  const createdMakeups: string[] = [];
+
+  const { data: session, error: sessionError } = await db
+    .from("sessions")
+    .select("id, group_id, status")
+    .eq("id", params.sessionId)
+    .eq("tenant_id", params.tenantId)
+    .single();
+  if (sessionError) throw sessionError;
 
   for (const item of params.items) {
+    const { data: enrollment, error: enrollmentError } = await db
+      .from("enrollments")
+      .select("id, group_id, student_person_id")
+      .eq("id", item.enrollmentId)
+      .eq("tenant_id", params.tenantId)
+      .single();
+    if (enrollmentError) throw enrollmentError;
+    if (
+      enrollment.group_id !== session.group_id ||
+      enrollment.student_person_id !== item.studentPersonId
+    ) {
+      throw new Error("Ученик не относится к выбранному занятию");
+    }
+
+    const { data: before } = await db
+      .from("attendance")
+      .select("*")
+      .eq("session_id", params.sessionId)
+      .eq("enrollment_id", item.enrollmentId)
+      .maybeSingle();
+
     const { data: row, error } = await db
       .from("attendance")
       .upsert(
@@ -145,15 +201,46 @@ export async function bulkUpsertAttendance(
     const pkg = await findActivePackageForEnrollment(db, item.enrollmentId);
     if (pkg && item.attendanceType === "regular") {
       const plan = pkg.plan_snapshot as PackagePlanSnapshot;
-      await consumeRegularCredit(db, {
-        tenantId: params.tenantId,
-        packageId: pkg.id,
-        sessionId: params.sessionId,
-        attendanceId: row.id,
-      });
+      const { data: linkedCredit } = await db
+        .from("lesson_credits")
+        .select("*")
+        .eq("student_package_id", pkg.id)
+        .eq("consumed_attendance_id", row.id)
+        .maybeSingle();
 
-      if (["absent", "absent_notified"].includes(item.status)) {
-        await maybeCreateMakeup(db, {
+      let consumedNow = false;
+      if (item.status === "cancelled_by_studio") {
+        if (linkedCredit) {
+          const { error: restoreError } = await db
+            .from("lesson_credits")
+            .update({
+              status: "available",
+              consumed_session_id: null,
+              consumed_attendance_id: null,
+            })
+            .eq("id", linkedCredit.id);
+          if (restoreError) throw restoreError;
+        }
+      } else if (!linkedCredit) {
+        consumedNow = Boolean(
+          await consumeRegularCredit(db, {
+            tenantId: params.tenantId,
+            packageId: pkg.id,
+            sessionId: params.sessionId,
+            attendanceId: row.id,
+          }),
+        );
+      }
+
+      const { data: existingMakeup } = await db
+        .from("makeup_credits")
+        .select("id, status")
+        .eq("source_attendance_id", row.id)
+        .maybeSingle();
+      const needsMakeup = shouldCreateMakeup(plan, item.status);
+
+      if (needsMakeup && !existingMakeup) {
+        const makeup = await maybeCreateMakeup(db, {
           tenantId: params.tenantId,
           studentPersonId: item.studentPersonId,
           attendanceId: row.id,
@@ -161,22 +248,34 @@ export async function bulkUpsertAttendance(
           plan,
           attendanceStatus: item.status,
         });
+        if (makeup) createdMakeups.push(makeup.id);
+      } else if (!needsMakeup && existingMakeup?.status === "available") {
+        const { error: deleteError } = await db
+          .from("makeup_credits")
+          .delete()
+          .eq("id", existingMakeup.id);
+        if (deleteError) throw deleteError;
       }
 
-      const remaining = await db
-        .from("lesson_credits")
-        .select("*", { count: "exact", head: true })
-        .eq("student_package_id", pkg.id)
-        .eq("status", "available");
+      if (consumedNow) {
+        const remaining = await db
+          .from("lesson_credits")
+          .select("*", { count: "exact", head: true })
+          .eq("student_package_id", pkg.id)
+          .eq("status", "available");
 
-      if ((remaining.count ?? 0) === 1) {
-        await enqueueNotification(db, {
-          tenantId: params.tenantId,
-          recipientPersonId: item.studentPersonId,
-          channel: "telegram",
-          templateCode: "credits.low_balance",
-          payload: { remaining: 1, packageId: pkg.id },
-        });
+        if ((remaining.count ?? 0) === 1) {
+          await enqueueNotification(db, {
+            tenantId: params.tenantId,
+            recipientPersonId: await notificationRecipient(
+              db,
+              item.studentPersonId,
+            ),
+            channel: "telegram",
+            templateCode: "credits.low_balance",
+            payload: { remaining: 1, packageId: pkg.id },
+          });
+        }
       }
     }
 
@@ -186,6 +285,7 @@ export async function bulkUpsertAttendance(
       action: "attendance.marked",
       entityType: "attendance",
       entityId: row.id,
+      before,
       after: item,
       requestId: params.requestId,
     });
@@ -193,5 +293,156 @@ export async function bulkUpsertAttendance(
     results.push(row);
   }
 
-  return results;
+  return { marked: results.length, rows: results, createdMakeups };
+}
+
+export async function reportCantAttendDb(
+  db: SupabaseClient,
+  params: {
+    tenantId: string;
+    sessionId: string;
+    actorPersonId: string;
+    studentPersonId?: string;
+    requestId?: string;
+  },
+) {
+  const { data: session, error: sessionError } = await db
+    .from("sessions")
+    .select("id, group_id, starts_at, status")
+    .eq("id", params.sessionId)
+    .eq("tenant_id", params.tenantId)
+    .single();
+  if (sessionError) throw sessionError;
+  if (session.status !== "scheduled") {
+    throw new Error("На это занятие уже нельзя сообщить об отсутствии");
+  }
+  if (
+    differenceInMinutes(new Date(session.starts_at), new Date()) <
+    cutoffMinutes()
+  ) {
+    throw new Error(
+      `Сообщить об отсутствии нужно минимум за ${STUDIO_POLICY.absentNotifyCutoffHours} ч`,
+    );
+  }
+
+  const studentPersonId = params.studentPersonId ?? params.actorPersonId;
+  if (studentPersonId !== params.actorPersonId) {
+    const { data: relation } = await db
+      .from("student_contacts")
+      .select("id")
+      .eq("student_person_id", studentPersonId)
+      .eq("contact_person_id", params.actorPersonId)
+      .in("relation_type", ["parent", "guardian"])
+      .maybeSingle();
+    if (!relation) {
+      throw new Error("Нет прав отметить отсутствие за этого ребёнка");
+    }
+  }
+
+  const { data: enrollment, error: enrollmentError } = await db
+    .from("enrollments")
+    .select("id")
+    .eq("tenant_id", params.tenantId)
+    .eq("group_id", session.group_id)
+    .eq("student_person_id", studentPersonId)
+    .eq("status", "active")
+    .single();
+  if (enrollmentError) throw enrollmentError;
+
+  const result = await bulkUpsertAttendance(db, {
+    tenantId: params.tenantId,
+    sessionId: params.sessionId,
+    items: [
+      {
+        enrollmentId: enrollment.id,
+        studentPersonId,
+        attendanceType: "regular",
+        status: "absent_notified",
+        comment:
+          studentPersonId === params.actorPersonId
+            ? "self-service absence"
+            : "parent reported child absence",
+      },
+    ],
+    markedBy: params.actorPersonId,
+    requestId: params.requestId,
+  });
+
+  return {
+    ...result,
+    studentPersonId,
+    message:
+      studentPersonId === params.actorPersonId
+        ? "Готово: студия знает, что тебя не будет."
+        : "Готово: студия знает, что ребёнка не будет.",
+  };
+}
+
+export async function finalizeSessionDb(
+  db: SupabaseClient,
+  params: {
+    tenantId: string;
+    sessionId: string;
+    actorPersonId: string;
+    requestId?: string;
+  },
+) {
+  const { data: session, error: sessionError } = await db
+    .from("sessions")
+    .select("id, group_id, status")
+    .eq("id", params.sessionId)
+    .eq("tenant_id", params.tenantId)
+    .single();
+  if (sessionError) throw sessionError;
+  if (session.status === "cancelled_by_studio") {
+    throw new Error("Отменённое занятие нельзя закрыть как проведённое");
+  }
+
+  const { data: roster, error: rosterError } = await db
+    .from("enrollments")
+    .select("id, student_person_id")
+    .eq("tenant_id", params.tenantId)
+    .eq("group_id", session.group_id)
+    .eq("status", "active");
+  if (rosterError) throw rosterError;
+
+  const enrollmentIds = (roster ?? []).map((item) => item.id);
+  const { data: existing } = enrollmentIds.length
+    ? await db
+        .from("attendance")
+        .select("enrollment_id, status")
+        .eq("session_id", params.sessionId)
+        .in("enrollment_id", enrollmentIds)
+    : { data: [] as Array<{ enrollment_id: string; status: string }> };
+  const statusByEnrollment = new Map(
+    (existing ?? []).map((item) => [item.enrollment_id, item.status]),
+  );
+
+  const result = await bulkUpsertAttendance(db, {
+    tenantId: params.tenantId,
+    sessionId: params.sessionId,
+    items: (roster ?? []).map((item) => {
+      const saved = statusByEnrollment.get(item.id);
+      return {
+        enrollmentId: item.id,
+        studentPersonId: item.student_person_id,
+        attendanceType: "regular" as const,
+        status:
+          saved === "absent" || saved === "absent_notified"
+            ? saved
+            : ("present" as const),
+      };
+    }),
+    markedBy: params.actorPersonId,
+    requestId: params.requestId,
+  });
+
+  const { error: updateError } = await db
+    .from("sessions")
+    .update({ status: "completed" })
+    .eq("id", params.sessionId)
+    .eq("tenant_id", params.tenantId);
+  if (updateError) throw updateError;
+
+  return result;
 }

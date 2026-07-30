@@ -2,6 +2,7 @@ import { jsonError, jsonOk } from "@/lib/api";
 import { getEnv } from "@/lib/env";
 import { hasSupabase } from "@/lib/env";
 import { sendTemplatedTelegram } from "@/integrations/telegram";
+import { renderTemplate } from "@/domain/notifications";
 
 function authorize(req: Request) {
   const secret = getEnv().CRON_SECRET;
@@ -50,14 +51,19 @@ export async function GET(req: Request) {
   }
 
   if (job === "retry_failed_notifications" || job === "dispatch_notifications") {
-    const { data: notes } = await db
+    let notesQuery = db
       .from("notifications")
-      .select("*, telegram_identities:recipient_person_id(*)")
-      .eq("status", "queued")
+      .select("*")
       .lte("scheduled_at", new Date().toISOString())
       .limit(50);
+    notesQuery =
+      job === "retry_failed_notifications"
+        ? notesQuery.in("status", ["queued", "failed"])
+        : notesQuery.eq("status", "queued");
+    const { data: notes } = await notesQuery;
 
     let sent = 0;
+    let failed = 0;
     for (const n of notes ?? []) {
       try {
         if (n.channel === "telegram") {
@@ -66,17 +72,39 @@ export async function GET(req: Request) {
             .select("chat_id")
             .eq("person_id", n.recipient_person_id)
             .maybeSingle();
-          if (identity?.chat_id) {
-            await sendTemplatedTelegram({
-              chatId: identity.chat_id,
-              templateCode: n.template_code,
-              payload: n.payload,
-            });
-          }
+          if (!identity?.chat_id) throw new Error("Telegram не привязан");
+          await sendTemplatedTelegram({
+            chatId: identity.chat_id,
+            templateCode: n.template_code,
+            payload: n.payload,
+          });
+        } else if (n.channel === "email") {
+          const env = getEnv();
+          if (!env.RESEND_API_KEY) throw new Error("Resend не настроен");
+          const { data: person } = await db
+            .from("persons")
+            .select("email")
+            .eq("id", n.recipient_person_id)
+            .maybeSingle();
+          if (!person?.email) throw new Error("У получателя нет email");
+          const { Resend } = await import("resend");
+          await new Resend(env.RESEND_API_KEY).emails.send({
+            from: env.EMAIL_FROM!,
+            to: person.email,
+            subject: "Уведомление от студии",
+            text: renderTemplate(n.template_code, n.payload ?? {}),
+          });
+        } else {
+          throw new Error(`Неизвестный канал: ${n.channel}`);
         }
         await db
           .from("notifications")
-          .update({ status: "sent", sent_at: new Date().toISOString() })
+          .update({
+            status: "sent",
+            sent_at: new Date().toISOString(),
+            failed_at: null,
+            error_message: null,
+          })
           .eq("id", n.id);
         sent += 1;
       } catch (e) {
@@ -88,9 +116,54 @@ export async function GET(req: Request) {
             error_message: e instanceof Error ? e.message : "fail",
           })
           .eq("id", n.id);
+        failed += 1;
       }
     }
-    return jsonOk({ job, sent });
+    return jsonOk({ job, sent, failed });
+  }
+
+  if (job === "queue_payment_reminders") {
+    const { data: payments } = await db
+      .from("payments")
+      .select("id, tenant_id, payer_person_id, amount, amount_paid, payment_url")
+      .in("status", ["pending", "partial"])
+      .not("due_at", "is", null)
+      .lte("due_at", new Date().toISOString())
+      .limit(100);
+    const since = new Date(Date.now() - 3 * 24 * 3600 * 1000).toISOString();
+    const { enqueueBestNotification } = await import("@/domain/notifications");
+    let queued = 0;
+    for (const payment of payments ?? []) {
+      if (!payment.payer_person_id) continue;
+      const { data: recent } = await db
+        .from("notifications")
+        .select("id")
+        .eq("template_code", "payment.reminder")
+        .contains("payload", { paymentId: payment.id })
+        .gte("created_at", since)
+        .limit(1)
+        .maybeSingle();
+      if (recent) continue;
+      try {
+        await enqueueBestNotification(db, {
+          tenantId: payment.tenant_id,
+          recipientPersonId: payment.payer_person_id,
+          templateCode: "payment.reminder",
+          payload: {
+            paymentId: payment.id,
+            amount: Math.max(
+              0,
+              Number(payment.amount) - Number(payment.amount_paid),
+            ),
+            paymentUrl: payment.payment_url,
+          },
+        });
+        queued += 1;
+      } catch (e) {
+        console.error("[cron] payment reminder skipped", payment.id, e);
+      }
+    }
+    return jsonOk({ job, queued });
   }
 
   if (job === "invoice_saldeo_sync") {
@@ -124,6 +197,7 @@ export async function GET(req: Request) {
     const jobs = [
       "expire_makeup_credits",
       "expire_packages",
+      "queue_payment_reminders",
       "dispatch_notifications",
       "invoice_saldeo_sync",
       "generate_sessions",

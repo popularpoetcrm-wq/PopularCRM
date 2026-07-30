@@ -6,17 +6,17 @@ import { BrandTabs } from "@/components/BrandTabs";
 import { BRANDS, type BrandId } from "@/lib/brands";
 
 const allLinks = [
-  { href: "/admin", label: "Пульт", roles: "staff" as const },
+  { href: "/admin", label: "Сегодня", roles: "staff" as const },
   { href: "/admin/insights", label: "Сводка", roles: "admin" as const },
   { href: "/admin/groups", label: "Группы", roles: "staff" as const },
   { href: "/admin/students", label: "Ученики", roles: "staff" as const },
   { href: "/admin/sessions", label: "Журнал", roles: "staff" as const },
-  { href: "/admin/attendance", label: "Отметить", roles: "staff" as const },
+  { href: "/admin/attendance", label: "Посещаемость", roles: "staff" as const },
   { href: "/admin/payments", label: "Оплаты", roles: "admin" as const },
   { href: "/admin/offers", label: "Пробные/ивенты", roles: "admin" as const },
   { href: "/admin/invoices", label: "Фактуры", roles: "admin" as const },
   { href: "/admin/exports", label: "Экспорт", roles: "staff" as const },
-  { href: "/admin/audit", label: "Audit", roles: "admin" as const },
+  { href: "/admin/audit", label: "История", roles: "admin" as const },
 ];
 
 export default async function AdminLayout({
@@ -41,7 +41,7 @@ export default async function AdminLayout({
       <header className="fade-up mb-6 space-y-4">
         <div className="glass-nav flex flex-wrap items-center justify-between gap-3 px-3 py-2">
           <div className="px-3">
-            <p className="font-display text-xl">Popular Admin</p>
+            <p className="font-display text-xl">Управление студией</p>
             <p className="text-xs text-fog">
               {user.fullName} · {teacher ? "педагог" : "админ"} · сейчас:{" "}
               <strong>{brand.name}</strong>

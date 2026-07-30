@@ -70,13 +70,13 @@ export default function AdminInsightsPage() {
       <div>
         <h1 className="font-display text-3xl">Сводка</h1>
         <p className="text-fog">
-          Касса, attach, риски и списки действий · вкладка бренда в шапке
+          Касса, риски и списки действий по выбранной студии
         </p>
       </div>
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <div className="glass p-5">
-          <p className="text-xs uppercase tracking-wide text-fog">Выручка (paid)</p>
+          <p className="text-xs uppercase tracking-wide text-fog">Получено оплат</p>
           <p className="mt-2 text-2xl font-semibold">{money(pulse.revenue_paid)}</p>
         </div>
         <div className="glass p-5">
@@ -90,7 +90,7 @@ export default function AdminInsightsPage() {
           <p className="text-xs uppercase tracking-wide text-fog">Активных</p>
           <p className="mt-2 text-2xl font-semibold">{pulse.active_students}</p>
           <p className="mt-1 text-xs text-fog">
-            attach {pulse.attach_pct}% ({pulse.attach_count} на 2+ направлениях)
+            {pulse.attach_pct}% ходят на несколько направлений ({pulse.attach_count} чел.)
           </p>
         </div>
         <div className="glass p-5">

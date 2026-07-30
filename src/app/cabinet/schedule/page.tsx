@@ -24,6 +24,7 @@ export default function SchedulePage() {
   const [children, setChildren] = useState<Child[]>([]);
   const [message, setMessage] = useState("");
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [now] = useState(() => Date.now());
 
   async function load() {
     const res = await fetch("/api/v1/me/dashboard");
@@ -64,7 +65,7 @@ export default function SchedulePage() {
         <p className="mt-2 text-fog">
           {children.length
             ? "Родительский кабинет: отметь «не придёт» за ребёнка."
-            : `По умолчанию придёшь. «Не приду» за ${STUDIO_POLICY.absentNotifyCutoffHours}+ ч.`}
+            : `Мы считаем, что ты придёшь. Если планы изменились, сообщи минимум за ${STUDIO_POLICY.absentNotifyCutoffHours} ч.`}
         </p>
       </div>
 
@@ -79,7 +80,7 @@ export default function SchedulePage() {
 
       <ul className="space-y-3">
         {sessions.map((s) => {
-          const soon = new Date(s.starts_at).getTime() - Date.now() < CUTOFF_MS;
+          const soon = new Date(s.starts_at).getTime() - now < CUTOFF_MS;
           const skipped =
             s.myStatus === "absent_notified" || s.myStatus === "absent";
           const cancelled = s.status === "cancelled_by_studio";

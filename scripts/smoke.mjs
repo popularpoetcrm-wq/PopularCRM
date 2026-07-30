@@ -18,6 +18,32 @@ function pickCookie(setCookie) {
   return setCookie.map((c) => c.split(";")[0]).join("; ");
 }
 
+async function localMagicCode(email) {
+  const dotenv = await import("dotenv");
+  dotenv.config({ path: ".env.local" });
+  if (
+    !process.env.NEXT_PUBLIC_SUPABASE_URL ||
+    !process.env.SUPABASE_SERVICE_ROLE_KEY
+  ) {
+    return null;
+  }
+  const { createClient } = await import("@supabase/supabase-js");
+  const db = createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL,
+    process.env.SUPABASE_SERVICE_ROLE_KEY,
+    { auth: { persistSession: false } },
+  );
+  const { data } = await db
+    .from("magic_login_codes")
+    .select("code")
+    .eq("email", email)
+    .is("consumed_at", null)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  return data?.code ?? null;
+}
+
 async function main() {
   const steps = [];
   const fail = (msg) => {
@@ -32,7 +58,40 @@ async function main() {
   });
   if (!r.json.ok) fail(`login admin: ${r.json.error}`);
   let cookie = pickCookie(r.setCookie);
-  steps.push("✓ login admin");
+  steps.push(`✓ login admin (${r.json.data.mode})`);
+
+  if (r.json.data.mode === "magic") {
+    const code =
+      r.json.data.debugCode ??
+      (await localMagicCode("admin@studio.local"));
+    if (!code) fail("Supabase smoke could not resolve the local test code");
+    r = await req("/api/v1/auth/verify", {
+      method: "POST",
+      body: JSON.stringify({
+        email: "admin@studio.local",
+        code,
+      }),
+    });
+    if (!r.json.ok) fail(`verify admin: ${r.json.error}`);
+    cookie = pickCookie(r.setCookie);
+    steps.push("✓ verify admin");
+
+    for (const [label, path] of [
+      ["groups", "/api/v1/admin/groups"],
+      ["students", "/api/v1/admin/students"],
+      ["payments", "/api/v1/admin/payments"],
+      ["day", "/api/v1/admin/day"],
+      ["birthdays", "/api/v1/admin/birthdays?days=30"],
+      ["invoices", "/api/v1/admin/invoices"],
+      ["audit", "/api/v1/admin/audit"],
+    ]) {
+      r = await req(path, { cookie });
+      if (!r.json.ok) fail(`${label}: ${r.json.error}`);
+      steps.push(`✓ ${label}`);
+    }
+    console.log("SUPABASE SMOKE OK\n" + steps.join("\n"));
+    return;
+  }
 
   r = await req("/api/v1/demo/reset", { method: "POST", cookie });
   if (!r.json.ok) fail(`reset: ${r.json.error}`);

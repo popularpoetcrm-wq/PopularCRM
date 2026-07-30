@@ -33,20 +33,26 @@ export async function POST(req: Request) {
     return jsonOk(invoice);
   }
 
-  const { requestInvoice, syncInvoiceToSaldeo } = await import("@/domain/invoices");
-  const { getAdminClient } = await import("@/lib/supabase/admin");
-  const db = getAdminClient();
-  const invoice = await requestInvoice(db, {
-    tenantId: user.tenantId,
-    paymentId: parsed.data.paymentId,
-    buyerPersonId: user.personId,
-    buyerType: parsed.data.buyerType,
-    companyName: parsed.data.companyName,
-    nip: parsed.data.nip,
-    actorPersonId: user.personId,
-  });
+  try {
+    const { requestInvoice, syncInvoiceToSaldeo } = await import("@/domain/invoices");
+    const { getAdminClient } = await import("@/lib/supabase/admin");
+    const db = getAdminClient();
+    const invoice = await requestInvoice(db, {
+      tenantId: user.tenantId,
+      paymentId: parsed.data.paymentId,
+      buyerPersonId: user.personId,
+      buyerType: parsed.data.buyerType,
+      companyName: parsed.data.companyName,
+      nip: parsed.data.nip,
+      actorPersonId: user.personId,
+    });
 
-  // MVP: sync immediately (later via outbox worker)
-  const synced = await syncInvoiceToSaldeo(db, invoice.id);
-  return jsonOk(synced);
+    if (["sent_to_saldeo", "issued"].includes(invoice.status)) {
+      return jsonOk(invoice);
+    }
+
+    return jsonOk(await syncInvoiceToSaldeo(db, invoice.id));
+  } catch (e) {
+    return jsonError(e instanceof Error ? e.message : "fail", 400);
+  }
 }

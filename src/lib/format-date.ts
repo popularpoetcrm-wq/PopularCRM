@@ -62,7 +62,7 @@ export function nextBirthdayYmd(
   if (!md || md.month < 1 || md.month > 12 || md.day < 1 || md.day > 31) {
     return null;
   }
-  const [fy, fm, fd] = fromYmd.split("-").map(Number);
+  const [fy] = fromYmd.split("-").map(Number);
   let year = fy;
   const candidate = `${year}-${String(md.month).padStart(2, "0")}-${String(md.day).padStart(2, "0")}`;
   if (candidate < fromYmd) year += 1;
@@ -131,4 +131,3 @@ export function formatYmdLabel(
     ...opts,
   }).format(dt);
 }
-

@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 /**
  * Import phase-3 payments + patch group.direction.
- * Usage: node scripts/import-payments.mjs
+ * Preview: node scripts/import-payments.mjs
+ * Apply:   node scripts/import-payments.mjs --apply
  */
 import { readFileSync } from "fs";
 import { resolve, dirname } from "path";
@@ -46,6 +47,7 @@ const db = createClient(env.NEXT_PUBLIC_SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_
 const payload = JSON.parse(
   readFileSync(resolve(__dir, "data/real-tables-phase3-payments.json"), "utf8"),
 );
+const APPLY = process.argv.includes("--apply");
 
 async function upsertChunk(table, rows, onConflict, label) {
   const size = 80;
@@ -93,14 +95,6 @@ async function main() {
     }
   }
 
-  // Delete previous import payments for clean re-run
-  const { error: delErr } = await db
-    .from("payments")
-    .delete()
-    .like("provider_session_id", "import:%");
-  if (delErr) console.warn("WARN delete old imports", delErr.message);
-  else console.log("OK cleared previous import:* payments");
-
   const rows = usable.map((p) => ({
     id: p.id,
     tenant_id: p.tenant_id,
@@ -116,8 +110,31 @@ async function main() {
     status: p.status,
     payment_method: p.payment_method,
     description: p.description,
+    due_at: p.due_at ?? null,
     paid_at: p.status === "paid" ? new Date().toISOString() : null,
   }));
+
+  if (!APPLY) {
+    const openAmount = rows.reduce(
+      (sum, row) => sum + Number(row.amount) - Number(row.amount_paid),
+      0,
+    );
+    console.log({
+      mode: "preview",
+      importedPaymentsToReplace: rows.length,
+      openAmount,
+      message: "No database writes. Re-run with --apply after review.",
+    });
+    return;
+  }
+
+  // Delete previous import payments for clean re-run
+  const { error: delErr } = await db
+    .from("payments")
+    .delete()
+    .like("provider_session_id", "import:%");
+  if (delErr) console.warn("WARN delete old imports", delErr.message);
+  else console.log("OK cleared previous import:* payments");
 
   const ok = await upsertChunk("payments", rows, "id", "payments");
   if (!ok) process.exit(1);

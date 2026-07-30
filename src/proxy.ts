@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { resolveBrandFromHost, resolveBrandFromPath } from "@/lib/brands";
 
-export function middleware(req: NextRequest) {
+export function proxy(req: NextRequest) {
   const host = req.headers.get("host");
   const hostBrand = resolveBrandFromHost(host);
   const brand = resolveBrandFromPath(req.nextUrl.pathname, hostBrand);

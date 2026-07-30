@@ -1,7 +1,8 @@
 import { z } from "zod";
-import { jsonError, jsonOk } from "@/lib/api";
+import { getRequestId, jsonError, jsonOk } from "@/lib/api";
 import { getSessionUser, isStaff } from "@/lib/auth";
 import { finalizeSessionPresentDefaults } from "@/lib/demo-attendance";
+import { hasSupabase } from "@/lib/env";
 
 const schema = z.object({
   sessionId: z.string(),
@@ -15,6 +16,19 @@ export async function POST(req: Request) {
   if (!parsed.success) return jsonError("Invalid payload");
 
   try {
+    if (hasSupabase() && user.mode === "supabase") {
+      const { getAdminClient } = await import("@/lib/supabase/admin");
+      const { finalizeSessionDb } = await import("@/domain/attendance");
+      return jsonOk(
+        await finalizeSessionDb(getAdminClient(), {
+          tenantId: user.tenantId,
+          sessionId: parsed.data.sessionId,
+          actorPersonId: user.personId,
+          requestId: getRequestId(req),
+        }),
+      );
+    }
+
     const result = finalizeSessionPresentDefaults(
       parsed.data.sessionId,
       user.fullName,

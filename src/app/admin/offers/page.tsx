@@ -15,12 +15,12 @@ type Offer = {
 export default function AdminOffersPage() {
   const [offers, setOffers] = useState<Offer[]>([]);
   const [message, setMessage] = useState("");
-  const [form, setForm] = useState({
+  const [form, setForm] = useState(() => ({
     product_kind: "trial" as "trial" | "event",
     title: "",
     amount: "70",
     starts_at: new Date(Date.now() + 2 * 86400000).toISOString().slice(0, 16),
-  });
+  }));
 
   async function load() {
     const res = await fetch("/api/v1/offers");
@@ -67,7 +67,9 @@ export default function AdminOffersPage() {
     <section className="space-y-6">
       <div>
         <h1 className="font-display text-3xl">Пробные и ивенты</h1>
-        <p className="text-fog">Оплата уходит на populartickets checkout (demo)</p>
+        <p className="text-fog">
+          Пробные занятия и события с оплатой через Popular Tickets.
+        </p>
       </div>
 
       <form onSubmit={create} className="glass grid gap-3 p-5 md:grid-cols-2">
@@ -103,7 +105,7 @@ export default function AdminOffersPage() {
           required
         />
         <button className="btn btn-primary md:col-span-2" type="submit">
-          Создать offer
+          Создать предложение
         </button>
       </form>
 
