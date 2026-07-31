@@ -10,8 +10,14 @@ function ticketsBaseUrl() {
 }
 
 function crmSecret() {
-  const secret = getEnv().CRM_CHECKOUT_SECRET?.trim();
-  if (!secret) throw new Error("CRM_CHECKOUT_SECRET не задан");
+  const env = getEnv();
+  const secret =
+    env.CRM_CHECKOUT_SECRET?.trim() || env.CRM_WEBHOOK_SECRET?.trim();
+  if (!secret) {
+    throw new Error(
+      "CRM_CHECKOUT_SECRET (или CRM_WEBHOOK_SECRET) не задан в Vercel",
+    );
+  }
   return secret;
 }
 
