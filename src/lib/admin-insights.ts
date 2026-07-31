@@ -1,5 +1,8 @@
 import type { BrandId } from "@/lib/brands";
-import { directionLabel as directionLabelShared } from "@/lib/group-display";
+import {
+  directionLabel as directionLabelShared,
+  normalizeDirection,
+} from "@/lib/group-display";
 import { getAdminClient } from "@/lib/supabase/admin";
 
 export type InsightPerson = {
@@ -207,7 +210,7 @@ export async function loadAdminInsightsDb(
     if (!s) continue;
     const g = groupMap.get(e.group_id);
     if (!g) continue;
-    const dir = (g.direction || "other").toLowerCase();
+    const dir = normalizeDirection(g.direction) || "other";
     s.directions.add(dir);
     if (!s.groups.includes(g.title)) s.groups.push(g.title);
   }
@@ -306,7 +309,7 @@ export async function loadAdminInsightsDb(
   const dirCounts = new Map<string, { students: Set<string>; enrollments: number }>();
   for (const e of enrollList) {
     const g = groupMap.get(e.group_id);
-    const dir = (g?.direction || "other").toLowerCase();
+    const dir = normalizeDirection(g?.direction) || "other";
     const row = dirCounts.get(dir) ?? {
       students: new Set<string>(),
       enrollments: 0,

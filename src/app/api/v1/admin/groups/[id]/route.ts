@@ -2,6 +2,7 @@ import { jsonError, jsonOk } from "@/lib/api";
 import { getSessionUser, isStaff } from "@/lib/auth";
 import { hasSupabase } from "@/lib/env";
 import { getGroupDetailDb, updateGroupDb } from "@/lib/supabase-data";
+import { normalizeDirection } from "@/lib/group-display";
 import {
   issueGroupTelegramBindTokenDb,
   unbindGroupTelegramDb,
@@ -74,7 +75,18 @@ export async function PATCH(req: Request, ctx: Ctx) {
       return jsonOk({ sent, students: enrollments?.length ?? 0 });
     }
 
-    const { action: _a, ...patch } = parsed.data;
+    const { action: _a, direction, ...rest } = parsed.data;
+    const patch = {
+      ...rest,
+      ...(direction !== undefined
+        ? {
+            direction:
+              direction === null
+                ? null
+                : normalizeDirection(direction) ?? direction,
+          }
+        : {}),
+    };
     return jsonOk(await updateGroupDb(id, user.tenantId, patch));
   } catch (e) {
     return jsonError(e instanceof Error ? e.message : "fail", 400);

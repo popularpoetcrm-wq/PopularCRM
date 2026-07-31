@@ -5,6 +5,7 @@ import { getSessionUser, isStaff } from "@/lib/auth";
 import { createGroup, getExtendedDemo, setDemoGroupStatus } from "@/lib/demo-ops";
 import { hasSupabase } from "@/lib/env";
 import { listGroupsDb, setGroupStatusDb } from "@/lib/supabase-data";
+import { normalizeDirection } from "@/lib/group-display";
 import type { BrandId } from "@/lib/brands";
 import { getAdminClient } from "@/lib/supabase/admin";
 
@@ -46,6 +47,9 @@ export async function POST(req: Request) {
   if (!parsed.success) return jsonError("Invalid payload");
   const jar = await cookies();
   const brandId = (jar.get("admin_brand_tab")?.value as BrandId) || "poet";
+  const direction = parsed.data.direction
+    ? normalizeDirection(parsed.data.direction)
+    : null;
 
   if (hasSupabase() && user.mode === "supabase") {
     const db = getAdminClient();
@@ -57,7 +61,7 @@ export async function POST(req: Request) {
         capacity: parsed.data.capacity ?? 12,
         brand_id: brandId,
         status: "active",
-        direction: parsed.data.direction ?? null,
+        direction,
       })
       .select("id, title, capacity, brand_id, status, direction")
       .single();
@@ -75,10 +79,12 @@ export async function POST(req: Request) {
 
   const group = createGroup({
     brand_id: brandId,
-    ...parsed.data,
+    title: parsed.data.title,
+    capacity: parsed.data.capacity,
+    teacher_name: parsed.data.teacher_name,
     actor: user.fullName,
   });
-  return jsonOk({ ...group, status: "active" });
+  return jsonOk({ ...group, status: "active", direction });
 }
 
 const patchSchema = z.object({

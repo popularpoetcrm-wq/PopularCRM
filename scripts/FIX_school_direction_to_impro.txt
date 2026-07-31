@@ -1,0 +1,6 @@
+-- «Воскресная школа» — название группы на импровизации, не направление.
+-- Run in Supabase SQL Editor.
+
+update groups
+set direction = 'impro'
+where lower(direction) in ('school', 'sunday_school');

@@ -265,9 +265,9 @@ export default function AdminGroupsPage() {
             <option value="">направление</option>
             <option value="impro">импровизация</option>
             <option value="acting">актёрское мастерство</option>
-            <option value="school">воскресная школа</option>
             <option value="kids">детская студия</option>
             <option value="show">спектакль</option>
+            <option value="playback">playback</option>
             <option value="other">другое</option>
           </select>
           <button className="btn btn-primary" type="submit">

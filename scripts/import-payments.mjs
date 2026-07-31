@@ -34,7 +34,7 @@ function directionFromTitle(title) {
   if (t.includes("идея")) return "kids";
   if (t.includes("импро")) return "impro";
   if (t.includes("актёр") || t.includes("актер")) return "acting";
-  if (t.includes("воскрес") || t.includes("школ")) return "school";
+  if (t.includes("воскрес") || t.includes("школ")) return "impro";
   if (t.includes("спектакл")) return "show";
   if (t.includes("play")) return "playback";
   return "other";

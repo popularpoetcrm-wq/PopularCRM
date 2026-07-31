@@ -39,7 +39,6 @@ type Detail = {
 const DIRECTIONS = [
   { value: "impro", label: "импровизация" },
   { value: "acting", label: "актёрское мастерство" },
-  { value: "school", label: "воскресная школа" },
   { value: "kids", label: "детская студия" },
   { value: "show", label: "спектакль" },
   { value: "playback", label: "playback" },
@@ -204,7 +203,7 @@ export default function AdminGroupDetailPage() {
             className="input mt-1"
             value={title}
             onChange={(e) => setTitle(e.target.value)}
-            placeholder="Напр. Импроверты · воскресная школа"
+            placeholder="Напр. Воскресная школа · вс 11:00"
           />
         </label>
         <label className="block text-sm">
