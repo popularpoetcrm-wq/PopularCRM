@@ -109,9 +109,12 @@ export default function AdminInsightsPage() {
           </p>
         </div>
         <div className="glass p-5">
-          <p className="text-xs uppercase tracking-wide text-fog">Present</p>
+          <p className="text-xs uppercase tracking-wide text-fog">Доходимость</p>
           <p className="mt-2 text-2xl font-semibold">
             {pulse.present_rate != null ? `${pulse.present_rate}%` : "—"}
+          </p>
+          <p className="mt-1 text-xs text-fog">
+            доля отметок «был» среди всех отметок в журнале
           </p>
         </div>
       </div>
@@ -227,7 +230,9 @@ export default function AdminInsightsPage() {
                     <p>
                       {g.roster}/{g.capacity}
                     </p>
-                    {g.present_rate != null ? <p>present {g.present_rate}%</p> : null}
+                    {g.present_rate != null ? (
+                      <p>доходимость {g.present_rate}%</p>
+                    ) : null}
                   </div>
                 </li>
               ))}
