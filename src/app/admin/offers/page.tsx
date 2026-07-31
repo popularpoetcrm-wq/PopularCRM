@@ -2,130 +2,122 @@
 
 import { useEffect, useState } from "react";
 
-type Offer = {
+type Trial = {
   id: string;
-  product_kind: "trial" | "event";
+  slug: string;
   title: string;
-  amount: number;
   starts_at: string;
-  capacity: number;
-  status: string;
+  venue: string;
+  total_tickets: number;
+  remaining: number;
+  price_grosze: number;
 };
 
-export default function AdminOffersPage() {
-  const [offers, setOffers] = useState<Offer[]>([]);
-  const [message, setMessage] = useState("");
-  const [form, setForm] = useState(() => ({
-    product_kind: "trial" as "trial" | "event",
-    title: "",
-    amount: "70",
-    starts_at: new Date(Date.now() + 2 * 86400000).toISOString().slice(0, 16),
-  }));
+function ticketsUrl() {
+  return (
+    process.env.NEXT_PUBLIC_TICKETS_URL ||
+    "https://www.populartickets.pl"
+  ).replace(/\/$/, "");
+}
 
-  async function load() {
-    const res = await fetch("/api/v1/offers");
-    const json = await res.json();
-    if (json.ok) setOffers(json.data);
-  }
+export default function AdminOffersPage() {
+  const [trials, setTrials] = useState<Trial[]>([]);
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(true);
+  const base = ticketsUrl();
 
   useEffect(() => {
-    void load();
+    void (async () => {
+      setLoading(true);
+      const res = await fetch("/api/v1/admin/tickets-trials");
+      const json = await res.json();
+      setLoading(false);
+      if (!json.ok) {
+        setError(json.error || "Не удалось загрузить с populartickets.pl");
+        return;
+      }
+      setTrials(json.data.trials ?? []);
+    })();
   }, []);
-
-  async function create(e: React.FormEvent) {
-    e.preventDefault();
-    const res = await fetch("/api/v1/offers", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        ...form,
-        amount: Number(form.amount),
-        starts_at: new Date(form.starts_at).toISOString(),
-      }),
-    });
-    const json = await res.json();
-    setMessage(json.ok ? `Создано: ${json.data.title}` : json.error);
-    await load();
-  }
-
-  async function buy(offerId: string) {
-    const res = await fetch("/api/v1/offers", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "buy", offer_id: offerId }),
-    });
-    const json = await res.json();
-    if (!json.ok) {
-      setMessage(json.error);
-      return;
-    }
-    setMessage(`Checkout: ${json.data.payment_url}`);
-    if (json.data.payment_url) window.open(json.data.payment_url, "_blank");
-  }
 
   return (
     <section className="space-y-6">
       <div>
         <h1 className="font-display text-3xl">Пробные и ивенты</h1>
-        <p className="text-fog">
-          Пробные занятия и события с оплатой через Popular Tickets.
+        <p className="mt-2 max-w-2xl text-fog">
+          Создаются и продаются на{" "}
+          <strong className="text-ink">populartickets.pl</strong>. На
+          popularpoet.pl только витрина. В CRM их не заводим — тут только
+          просмотр того, что уже есть в Tickets.
         </p>
+        <div className="mt-4 flex flex-wrap gap-2">
+          <a
+            className="btn btn-primary"
+            href={`${base}/admin`}
+            target="_blank"
+            rel="noreferrer"
+          >
+            Открыть Tickets → создать
+          </a>
+          <a
+            className="btn btn-ghost"
+            href={`${base}/`}
+            target="_blank"
+            rel="noreferrer"
+          >
+            Витрина Tickets
+          </a>
+        </div>
       </div>
 
-      <form onSubmit={create} className="glass grid gap-3 p-5 md:grid-cols-2">
-        <select
-          className="input"
-          value={form.product_kind}
-          onChange={(e) =>
-            setForm({ ...form, product_kind: e.target.value as "trial" | "event" })
-          }
-        >
-          <option value="trial">Пробное</option>
-          <option value="event">Ивент</option>
-        </select>
-        <input
-          className="input"
-          placeholder="Название"
-          value={form.title}
-          onChange={(e) => setForm({ ...form, title: e.target.value })}
-          required
-        />
-        <input
-          className="input"
-          placeholder="Цена PLN"
-          value={form.amount}
-          onChange={(e) => setForm({ ...form, amount: e.target.value })}
-          required
-        />
-        <input
-          className="input"
-          type="datetime-local"
-          value={form.starts_at}
-          onChange={(e) => setForm({ ...form, starts_at: e.target.value })}
-          required
-        />
-        <button className="btn btn-primary md:col-span-2" type="submit">
-          Создать предложение
-        </button>
-      </form>
+      {loading ? (
+        <p className="text-fog">Тянем список с populartickets.pl…</p>
+      ) : null}
+      {error ? (
+        <div className="glass p-5 text-sm text-warn">
+          <p>{error}</p>
+          <p className="mt-2 text-fog">
+            Проверь CRM_CHECKOUT_SECRET и что Tickets отдаёт{" "}
+            <code>/api/crm/trials</code>.
+          </p>
+        </div>
+      ) : null}
 
-      {message ? <p className="text-sm text-stage-deep break-all">{message}</p> : null}
-
-      <ul className="space-y-3">
-        {offers.map((o) => (
-          <li key={o.id} className="glass flex flex-wrap items-center justify-between gap-3 p-5">
-            <div>
-              <p className="font-semibold">{o.title}</p>
-              <p className="text-sm text-fog">
-                {o.product_kind} · {o.amount} PLN · {new Date(o.starts_at).toLocaleString()}
-              </p>
-            </div>
-            <button className="btn btn-stage" onClick={() => buy(o.id)}>
-              Ссылка оплаты
-            </button>
-          </li>
-        ))}
-      </ul>
+      {!loading && !error ? (
+        <ul className="space-y-3">
+          {!trials.length ? (
+            <li className="glass p-5 text-fog">
+              На Tickets сейчас нет открытых пробных.
+            </li>
+          ) : (
+            trials.map((t) => (
+              <li
+                key={t.id}
+                className="glass flex flex-wrap items-center justify-between gap-3 p-5"
+              >
+                <div>
+                  <p className="font-semibold">{t.title}</p>
+                  <p className="text-sm text-fog">
+                    {new Date(t.starts_at).toLocaleString("ru-RU")}
+                    {t.venue ? ` · ${t.venue}` : ""}
+                    {" · "}
+                    {Math.round(t.price_grosze / 100)} PLN · мест{" "}
+                    {t.remaining}/{t.total_tickets}
+                  </p>
+                </div>
+                <a
+                  className="btn btn-stage"
+                  href={`${base}/e/${t.slug || t.id}`}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  Страница на Tickets
+                </a>
+              </li>
+            ))
+          )}
+        </ul>
+      ) : null}
     </section>
   );
 }
