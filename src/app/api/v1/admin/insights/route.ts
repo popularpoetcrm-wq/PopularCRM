@@ -25,6 +25,7 @@ export async function GET() {
         present_rate: null,
       },
       directions: [],
+      open_debt: [],
       top_ltv: [],
       risk: [],
       cross_sell: [],

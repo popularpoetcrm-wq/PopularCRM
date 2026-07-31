@@ -37,6 +37,7 @@ export type AdminInsights = {
     present_rate: number | null;
   };
   directions: Array<{ direction: string; students: number; enrollments: number }>;
+  open_debt: InsightPerson[];
   top_ltv: InsightPerson[];
   risk: InsightPerson[];
   cross_sell: InsightPerson[];
@@ -214,13 +215,35 @@ export async function loadAdminInsightsDb(
   const enrollToStudent = new Map(
     enrollList.map((e) => [e.id, e.student_person_id]),
   );
+
+  /** Prefer student from enrollment; fall back to payer (parent / self). */
+  function debtOwnerId(p: {
+    payer_person_id?: string | null;
+    enrollment_id?: string | null;
+  }): string | null {
+    const fromEnroll = p.enrollment_id
+      ? enrollToStudent.get(p.enrollment_id) ?? null
+      : null;
+    return fromEnroll || p.payer_person_id || null;
+  }
+
   for (const p of payments) {
-    const sid =
-      p.payer_person_id ||
-      (p.enrollment_id ? enrollToStudent.get(p.enrollment_id) : null);
+    const sid = debtOwnerId(p);
     if (!sid) continue;
-    const s = byStudent.get(sid);
-    if (!s) continue;
+    let s = byStudent.get(sid);
+    if (!s) {
+      s = {
+        id: sid,
+        full_name: personMap.get(sid) ?? "—",
+        directions: new Set(),
+        groups: [],
+        present: 0,
+        total: 0,
+        ltv: 0,
+        debt: 0,
+      };
+      byStudent.set(sid, s);
+    }
     const paid = Number(p.amount_paid || 0);
     const amount = Number(p.amount || 0);
     if (p.status === "paid" || p.status === "partial") s.ltv += paid;
@@ -239,10 +262,22 @@ export async function loadAdminInsightsDb(
     if (["pending", "partial"].includes(p.status)) {
       const open = Math.max(0, amount - paid);
       debt_open += open;
-      const sid =
-        p.payer_person_id ||
-        (p.enrollment_id ? enrollToStudent.get(p.enrollment_id) : null);
+      const sid = debtOwnerId(p);
       if (sid && open > 0) debtorIds.add(sid);
+    }
+  }
+
+  // Names for debtors who aren't in active roster (ended / payer-only)
+  const missingNames = [...debtorIds].filter((id) => !personMap.has(id));
+  for (const ids of chunk(missingNames, 100)) {
+    const { data } = await db
+      .from("persons")
+      .select("id, full_name")
+      .in("id", ids);
+    for (const p of data ?? []) {
+      personMap.set(p.id, p.full_name);
+      const s = byStudent.get(p.id);
+      if (s && s.full_name === "—") s.full_name = p.full_name;
     }
   }
 
@@ -251,7 +286,7 @@ export async function loadAdminInsightsDb(
     const dirs = [...s.directions].filter((d) => d !== "other" && d !== "kids");
     return dirs.length >= 2;
   }).length;
-  const active_students = students.length;
+  const active_students = studentIds.length;
   const attach_pct =
     active_students > 0
       ? Math.round((attach_count / active_students) * 1000) / 10
@@ -391,6 +426,17 @@ export async function loadAdminInsightsDb(
       count: thin_groups.length,
     });
   }
+  const open_debt = students
+    .filter((s) => s.debt > 0)
+    .sort((a, b) => b.debt - a.debt)
+    .map((s) =>
+      toPerson(
+        { ...s, full_name: personMap.get(s.id) ?? s.full_name },
+        `долг ${Math.round(s.debt)} PLN` +
+          (s.groups.length ? ` · ${s.groups.slice(0, 2).join(", ")}` : ""),
+      ),
+    );
+
   if (debtorIds.size) {
     advice.push({
       id: "open-debt",
@@ -417,13 +463,14 @@ export async function loadAdminInsightsDb(
     pulse: {
       revenue_paid: Math.round(revenue_paid),
       debt_open: Math.round(debt_open),
-      debtors: debtorIds.size,
+      debtors: open_debt.length || debtorIds.size,
       active_students,
       attach_pct,
       attach_count,
       present_rate,
     },
     directions,
+    open_debt,
     top_ltv,
     risk,
     cross_sell,
@@ -445,6 +492,7 @@ function emptyInsights(brandId: BrandId): AdminInsights {
       present_rate: null,
     },
     directions: [],
+    open_debt: [],
     top_ltv: [],
     risk: [],
     cross_sell: [],

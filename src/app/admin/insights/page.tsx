@@ -85,6 +85,21 @@ export default function AdminInsightsPage() {
             {money(pulse.debt_open)}
           </p>
           <p className="mt-1 text-xs text-fog">{pulse.debtors} чел.</p>
+          {data.open_debt?.length ? (
+            <ul className="mt-3 space-y-1 border-t border-white/10 pt-3 text-sm">
+              {data.open_debt.map((p) => (
+                <li key={p.id} className="flex justify-between gap-2">
+                  <Link
+                    href={`/admin/students/${p.id}`}
+                    className="truncate font-semibold underline"
+                  >
+                    {p.full_name}
+                  </Link>
+                  <span className="shrink-0 text-warn">{money(p.debt)}</span>
+                </li>
+              ))}
+            </ul>
+          ) : null}
         </div>
         <div className="glass p-5">
           <p className="text-xs uppercase tracking-wide text-fog">Активных</p>
@@ -100,6 +115,18 @@ export default function AdminInsightsPage() {
           </p>
         </div>
       </div>
+
+      {data.open_debt?.length ? (
+        <section className="space-y-3">
+          <h2 className="font-display text-2xl">Кто должен</h2>
+          <p className="text-sm text-fog">pending / partial — клик в карточку</p>
+          <ul className="glass divide-y divide-white/10">
+            {data.open_debt.map((p) => (
+              <PersonRow key={p.id} p={p} />
+            ))}
+          </ul>
+        </section>
+      ) : null}
 
       {data.advice.length ? (
         <section className="space-y-3">
