@@ -5,12 +5,12 @@ import type { BrandId } from "@/lib/brands";
 import { hasSupabase } from "@/lib/env";
 import { warsawYmd } from "@/lib/format-date";
 import { listSessionsArchiveDb } from "@/lib/supabase-data";
-import { fetchTicketsTrials } from "@/lib/tickets-makeup";
+import { fetchTicketsListings } from "@/lib/tickets-makeup";
 import { getDemoState } from "@/lib/demo-store";
 
 export type CalendarEvent = {
   id: string;
-  kind: "session" | "trial";
+  kind: "session" | "trial" | "event";
   title: string;
   starts_at: string;
   group_id?: string | null;
@@ -20,10 +20,12 @@ export type CalendarEvent = {
   remaining?: number | null;
   total_tickets?: number | null;
   price_pln?: number | null;
+  listing_kind?: "trial" | "performance" | "special" | null;
+  /** Where the listing lives / is sold */
+  source?: "populartickets.pl" | "studio" | null;
 };
 
 function inMonth(iso: string, month: string) {
-  // Compare in Warsaw calendar date
   try {
     const ymd = new Intl.DateTimeFormat("en-CA", {
       timeZone: "Europe/Warsaw",
@@ -37,7 +39,7 @@ function inMonth(iso: string, month: string) {
   }
 }
 
-/** GET /api/v1/admin/calendar?month=YYYY-MM — studio sessions + Tickets trials. */
+/** GET /api/v1/admin/calendar?month=YYYY-MM — studio sessions + Tickets listings. */
 export async function GET(req: Request) {
   const user = await getSessionUser();
   if (!user || !isStaff(user.roles)) return jsonError("Forbidden", 403);
@@ -63,6 +65,7 @@ export async function GET(req: Request) {
           starts_at: s.starts_at,
           group_id: s.group_id,
           status: s.status,
+          source: "studio",
         });
       }
     } catch (e) {
@@ -83,18 +86,20 @@ export async function GET(req: Request) {
         starts_at: s.starts_at,
         group_id: s.group_id,
         status: s.status,
+        source: "studio",
       });
     }
   }
 
-  let trials_error: string | null = null;
+  let tickets_error: string | null = null;
   try {
-    const trials = await fetchTicketsTrials();
-    for (const t of trials) {
+    const listings = await fetchTicketsListings(month);
+    for (const t of listings) {
       if (!inMonth(t.starts_at, month)) continue;
+      const isTrial = t.listing_kind === "trial";
       events.push({
-        id: `trial:${t.id}`,
-        kind: "trial",
+        id: `${isTrial ? "trial" : "event"}:${t.id}`,
+        kind: isTrial ? "trial" : "event",
         title: t.title,
         starts_at: t.starts_at,
         slug: t.slug,
@@ -102,10 +107,12 @@ export async function GET(req: Request) {
         remaining: t.remaining,
         total_tickets: t.total_tickets,
         price_pln: Math.round(t.price_grosze / 100),
+        listing_kind: t.listing_kind,
+        source: "populartickets.pl",
       });
     }
   } catch (e) {
-    trials_error = e instanceof Error ? e.message : "tickets fail";
+    tickets_error = e instanceof Error ? e.message : "tickets fail";
   }
 
   events.sort((a, b) => a.starts_at.localeCompare(b.starts_at));
@@ -114,6 +121,8 @@ export async function GET(req: Request) {
     month,
     brand_id: tab,
     events,
-    trials_error,
+    tickets_error,
+    /** @deprecated use tickets_error */
+    trials_error: tickets_error,
   });
 }

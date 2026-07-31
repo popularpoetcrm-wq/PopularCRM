@@ -17,7 +17,7 @@ import { warsawYmd } from "@/lib/format-date";
 
 type CalEvent = {
   id: string;
-  kind: "session" | "trial";
+  kind: "session" | "trial" | "event";
   title: string;
   starts_at: string;
   group_id?: string | null;
@@ -27,12 +27,20 @@ type CalEvent = {
   remaining?: number | null;
   total_tickets?: number | null;
   price_pln?: number | null;
+  listing_kind?: "trial" | "performance" | "special" | null;
+  source?: string | null;
 };
 
 function ticketsUrl() {
   return (
     process.env.NEXT_PUBLIC_TICKETS_URL ||
     "https://www.populartickets.pl"
+  ).replace(/\/$/, "");
+}
+
+function poetUrl() {
+  return (
+    process.env.NEXT_PUBLIC_POET_URL || "https://popularpoet.pl"
   ).replace(/\/$/, "");
 }
 
@@ -53,11 +61,32 @@ function warsawTime(iso: string) {
   }).format(new Date(iso));
 }
 
+function ticketsHref(base: string, e: CalEvent) {
+  if (!e.slug) return base;
+  if (e.listing_kind === "special") return `${base}/ru/special/${e.slug}`;
+  return `${base}/ru/events/${e.slug}`;
+}
+
+function kindLabel(e: CalEvent) {
+  if (e.kind === "session") return "Занятие";
+  if (e.kind === "trial") return "Пробное · Tickets / Poet";
+  if (e.listing_kind === "special") return "Special · Tickets";
+  return "Ивент · Tickets / Poet";
+}
+
+function kindShort(e: CalEvent) {
+  if (e.kind === "session") return e.title;
+  if (e.kind === "trial") return "пробн.";
+  if (e.listing_kind === "special") return "spec.";
+  return "ивент";
+}
+
 export default function AdminOffersPage() {
   const base = ticketsUrl();
+  const poet = poetUrl();
   const [month, setMonth] = useState(() => warsawYmd().slice(0, 7));
   const [events, setEvents] = useState<CalEvent[]>([]);
-  const [trialsError, setTrialsError] = useState<string | null>(null);
+  const [ticketsError, setTicketsError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [selectedYmd, setSelectedYmd] = useState(() => warsawYmd());
@@ -80,12 +109,13 @@ export default function AdminOffersPage() {
       return;
     }
     setEvents(json.data.events ?? []);
-    setTrialsError(json.data.trials_error ?? null);
+    setTicketsError(
+      json.data.tickets_error ?? json.data.trials_error ?? null,
+    );
   }
 
   useEffect(() => {
     void load(month);
-    // Keep selected day inside month when navigating
     if (!selectedYmd.startsWith(month)) {
       setSelectedYmd(`${month}-01`);
     }
@@ -129,9 +159,10 @@ export default function AdminOffersPage() {
         <div>
           <h1 className="font-display text-3xl">Календарь студии</h1>
           <p className="mt-2 max-w-2xl text-fog">
-            Занятия групп и пробные с{" "}
-            <strong className="text-ink">populartickets.pl</strong>. Страницу
-            пробного создаём там — здесь только обзор и заглушка действия.
+            Занятия групп + ивенты и пробные с{" "}
+            <strong className="text-ink">populartickets.pl</strong> (то же, что
+            светятся на popularpoet.pl). Страницу пробного создаём в Tickets —
+            здесь обзор и заглушка.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -143,12 +174,18 @@ export default function AdminOffersPage() {
           >
             Tickets → создать
           </a>
+          <a
+            className="btn btn-ghost"
+            href={poet}
+            target="_blank"
+            rel="noreferrer"
+          >
+            Poet
+          </a>
           <button
             type="button"
             className="btn btn-stage"
-            onClick={() =>
-              openStub(`день ${selectedYmd}`)
-            }
+            onClick={() => openStub(`день ${selectedYmd}`)}
           >
             Сделать страницу пробного
           </button>
@@ -181,16 +218,19 @@ export default function AdminOffersPage() {
             <span className="h-2 w-2 rounded-full bg-[var(--accent)]" /> занятие
           </span>
           <span className="inline-flex items-center gap-1.5">
-            <span className="h-2 w-2 rounded-full bg-[var(--warn)]" /> пробное Tickets
+            <span className="h-2 w-2 rounded-full bg-[var(--warn)]" /> пробное
+          </span>
+          <span className="inline-flex items-center gap-1.5">
+            <span className="h-2 w-2 rounded-full bg-[var(--ok)]" /> ивент
           </span>
         </span>
       </div>
 
       {loading ? <p className="text-fog">Загружаем месяц…</p> : null}
       {error ? <p className="text-warn">{error}</p> : null}
-      {trialsError ? (
+      {ticketsError ? (
         <p className="text-sm text-warn">
-          Пробные с Tickets не подтянулись: {trialsError}
+          Ивенты/пробные с Tickets не подтянулись: {ticketsError}
         </p>
       ) : null}
 
@@ -212,6 +252,7 @@ export default function AdminOffersPage() {
               const list = byDay.get(ymd) ?? [];
               const hasSession = list.some((e) => e.kind === "session");
               const hasTrial = list.some((e) => e.kind === "trial");
+              const hasEvent = list.some((e) => e.kind === "event");
 
               return (
                 <button
@@ -224,7 +265,9 @@ export default function AdminOffersPage() {
                     selected
                       ? "bg-white/15 ring-1 ring-white/30"
                       : "hover:bg-white/8",
-                    today && !selected ? "ring-1 ring-[color-mix(in_oklab,var(--accent)_50%,transparent)]" : "",
+                    today && !selected
+                      ? "ring-1 ring-[color-mix(in_oklab,var(--accent)_50%,transparent)]"
+                      : "",
                   ].join(" ")}
                 >
                   <span
@@ -242,6 +285,9 @@ export default function AdminOffersPage() {
                     {hasTrial ? (
                       <span className="h-1.5 w-1.5 rounded-full bg-[var(--warn)]" />
                     ) : null}
+                    {hasEvent ? (
+                      <span className="h-1.5 w-1.5 rounded-full bg-[var(--ok)]" />
+                    ) : null}
                   </div>
                   <div className="mt-1 space-y-0.5">
                     {list.slice(0, 2).map((e) => (
@@ -249,8 +295,7 @@ export default function AdminOffersPage() {
                         key={e.id}
                         className="truncate text-[10px] leading-tight text-fog"
                       >
-                        {warsawTime(e.starts_at)}{" "}
-                        {e.kind === "trial" ? "пробн." : e.title}
+                        {warsawTime(e.starts_at)} {kindShort(e)}
                       </p>
                     ))}
                     {list.length > 2 ? (
@@ -274,7 +319,9 @@ export default function AdminOffersPage() {
           </div>
 
           {!dayEvents.length ? (
-            <p className="text-fog">Пусто — можно сделать страницу пробного на этот день.</p>
+            <p className="text-fog">
+              Пусто — можно сделать страницу пробного на этот день.
+            </p>
           ) : (
             <ul className="space-y-3">
               {dayEvents.map((e) => (
@@ -285,12 +332,10 @@ export default function AdminOffersPage() {
                   <div className="flex flex-wrap items-start justify-between gap-2">
                     <div>
                       <p className="text-xs uppercase tracking-wide text-fog">
-                        {e.kind === "trial" ? "Пробное · Tickets" : "Занятие"}
-                        {" · "}
-                        {warsawTime(e.starts_at)}
+                        {kindLabel(e)} · {warsawTime(e.starts_at)}
                       </p>
                       <p className="font-semibold">{e.title}</p>
-                      {e.kind === "trial" ? (
+                      {e.kind !== "session" ? (
                         <p className="mt-1 text-xs text-fog">
                           {[
                             e.venue,
@@ -308,14 +353,14 @@ export default function AdminOffersPage() {
                         </p>
                       )}
                     </div>
-                    {e.kind === "trial" && e.slug ? (
+                    {e.kind !== "session" && e.slug ? (
                       <a
                         className="btn btn-ghost text-xs"
-                        href={`${base}/e/${e.slug}`}
+                        href={ticketsHref(base, e)}
                         target="_blank"
                         rel="noreferrer"
                       >
-                        Страница
+                        Tickets
                       </a>
                     ) : null}
                   </div>
@@ -361,11 +406,8 @@ export default function AdminOffersPage() {
             <h3 className="font-display text-2xl">Пока заглушка</h3>
             <p className="text-sm text-fog">
               Страницы пробных и ивентов создаются на{" "}
-              <strong className="text-ink">populartickets.pl</strong> (другой
-              бот / админка Tickets). Контекст: {stubContext || "—"}.
-            </p>
-            <p className="text-sm text-fog">
-              Здесь позже подключим вызов API Tickets; сейчас — ручное создание.
+              <strong className="text-ink">populartickets.pl</strong> и потом
+              видны на popularpoet.pl. Контекст: {stubContext || "—"}.
             </p>
             <div className="flex flex-wrap gap-2">
               <a

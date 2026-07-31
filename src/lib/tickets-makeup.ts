@@ -32,6 +32,11 @@ export type TicketsTrial = {
   price_grosze: number;
 };
 
+export type TicketsListing = TicketsTrial & {
+  listing_kind: "trial" | "performance" | "special";
+  source?: string;
+};
+
 export async function fetchTicketsTrials(): Promise<TicketsTrial[]> {
   const res = await fetch(`${ticketsBaseUrl()}/api/crm/trials`, {
     headers: { Authorization: `Bearer ${crmSecret()}` },
@@ -46,6 +51,26 @@ export async function fetchTicketsTrials(): Promise<TicketsTrial[]> {
     throw new Error(json.error || `Tickets trials HTTP ${res.status}`);
   }
   return json.trials ?? [];
+}
+
+/** Trials + performances + specials for CRM calendar (populartickets / poet showcase). */
+export async function fetchTicketsListings(
+  month?: string,
+): Promise<TicketsListing[]> {
+  const q = month ? `?month=${encodeURIComponent(month)}` : "";
+  const res = await fetch(`${ticketsBaseUrl()}/api/crm/events${q}`, {
+    headers: { Authorization: `Bearer ${crmSecret()}` },
+    cache: "no-store",
+  });
+  const json = (await res.json().catch(() => ({}))) as {
+    ok?: boolean;
+    events?: TicketsListing[];
+    error?: string;
+  };
+  if (!res.ok || !json.ok) {
+    throw new Error(json.error || `Tickets events HTTP ${res.status}`);
+  }
+  return json.events ?? [];
 }
 
 export async function reserveTicketsMakeupTrial(input: {
