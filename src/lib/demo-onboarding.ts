@@ -143,7 +143,10 @@ export function invitePerson(
     created_by: opts?.actor,
   };
   state.invites.unshift(invite);
-  setStatus(target, "invited");
+  // Don't kick completed users back into welcome.
+  if (target.onboarding_status !== "complete") {
+    setStatus(target, "invited");
+  }
 
   const magicUrl = `${appBaseUrl()}/login/magic?token=${token}`;
   if (!opts?.silent) {

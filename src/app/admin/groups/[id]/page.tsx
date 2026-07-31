@@ -28,6 +28,9 @@ type Detail = {
     status_label?: string;
     capacity: number;
     subtitle?: string | null;
+    telegram_chat_id?: number | null;
+    telegram_linked?: boolean;
+    telegram_bind_pending?: boolean;
   };
   members: Member[];
   counts: { active: number; paused: number; ended: number };
@@ -51,6 +54,7 @@ export default function AdminGroupDetailPage() {
   const [title, setTitle] = useState("");
   const [direction, setDirection] = useState("");
   const [showEnded, setShowEnded] = useState(false);
+  const [bindCmd, setBindCmd] = useState<string | null>(null);
 
   async function load() {
     const res = await fetch(`/api/v1/admin/groups/${id}`);
@@ -117,6 +121,50 @@ export default function AdminGroupDetailPage() {
     const json = await res.json();
     setMsg(json.ok ? "Статус ученика обновлён" : json.error);
     await load();
+  }
+
+  async function issueTgBind() {
+    const res = await fetch(`/api/v1/admin/groups/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "telegram_bind_token" }),
+    });
+    const json = await res.json();
+    if (!json.ok) {
+      setMsg(json.error);
+      return;
+    }
+    setBindCmd(json.data.command as string);
+    setMsg(
+      "Код на 1 час. Добавь бота в TG-группу (админом) и отправь там команду ниже.",
+    );
+    await load();
+  }
+
+  async function unbindTg() {
+    const res = await fetch(`/api/v1/admin/groups/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "telegram_unbind" }),
+    });
+    const json = await res.json();
+    setMsg(json.ok ? "Telegram-группа отвязана" : json.error);
+    setBindCmd(null);
+    await load();
+  }
+
+  async function inviteAllTg() {
+    const res = await fetch(`/api/v1/admin/groups/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "telegram_invite_all" }),
+    });
+    const json = await res.json();
+    setMsg(
+      json.ok
+        ? `Инвайты в TG: отправлено ${json.data.sent} (учеников ${json.data.students})`
+        : json.error,
+    );
   }
 
   if (!data) {
@@ -189,6 +237,39 @@ export default function AdminGroupDetailPage() {
           >
             Ссылка «Это я»
           </a>
+        </div>
+      </div>
+
+      <div className="glass space-y-3 p-5">
+        <h2 className="font-display text-xl">Telegram-группа</h2>
+        <p className="text-sm text-fog">
+          Привяжи супергруппу студии: бот должен быть админом чата. После привязки
+          ученикам с личным ботом уйдёт ссылка-приглашение.
+        </p>
+        {g.telegram_linked ? (
+          <p className="text-sm">
+            Привязано · chat_id <code>{g.telegram_chat_id}</code>
+          </p>
+        ) : (
+          <p className="text-sm text-fog">Пока не привязано</p>
+        )}
+        {bindCmd ? (
+          <p className="rounded-lg bg-black/20 p-3 font-mono text-sm">{bindCmd}</p>
+        ) : null}
+        <div className="flex flex-wrap gap-2">
+          <button type="button" className="btn btn-stage" onClick={issueTgBind}>
+            {g.telegram_linked ? "Перепривязать" : "Получить код /bind"}
+          </button>
+          {g.telegram_linked ? (
+            <>
+              <button type="button" className="btn btn-ghost" onClick={inviteAllTg}>
+                Разослать инвайты ученикам
+              </button>
+              <button type="button" className="btn btn-ghost" onClick={unbindTg}>
+                Отвязать
+              </button>
+            </>
+          ) : null}
         </div>
       </div>
 

@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { getSessionUser } from "@/lib/auth";
+import { getSessionUser, isStaff } from "@/lib/auth";
 import { getDemoState } from "@/lib/demo-store";
 import { hasSupabase } from "@/lib/env";
 import { getPersonOnboardingStatus } from "@/lib/supabase-data";
@@ -12,6 +12,11 @@ export default async function CabinetAppLayout({
 }) {
   const user = await getSessionUser();
   if (!user) redirect("/login");
+
+  // Staff use /admin; if they open cabinet, don't trap them in student welcome.
+  if (isStaff(user.roles)) {
+    return children;
+  }
 
   let status = "complete";
   if (hasSupabase() && user.mode === "supabase") {

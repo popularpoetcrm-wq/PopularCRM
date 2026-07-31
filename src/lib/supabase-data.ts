@@ -526,13 +526,34 @@ export async function listGroupsDb(
 
 export async function getGroupDetailDb(groupId: string, tenantId: string) {
   const db = getAdminClient();
-  const { data: group, error } = await db
+  let group: Record<string, unknown> | null = null;
+  const full = await db
     .from("groups")
-    .select("id, title, capacity, brand_id, status, direction, teacher_person_id")
+    .select(
+      "id, title, capacity, brand_id, status, direction, teacher_person_id, telegram_chat_id, telegram_bind_token, telegram_bind_expires_at",
+    )
     .eq("id", groupId)
     .eq("tenant_id", tenantId)
     .maybeSingle();
-  if (error) throw new Error(error.message);
+  if (
+    full.error &&
+    /telegram_bind_token|schema cache|does not exist/i.test(full.error.message)
+  ) {
+    const basic = await db
+      .from("groups")
+      .select(
+        "id, title, capacity, brand_id, status, direction, teacher_person_id, telegram_chat_id",
+      )
+      .eq("id", groupId)
+      .eq("tenant_id", tenantId)
+      .maybeSingle();
+    if (basic.error) throw new Error(basic.error.message);
+    group = basic.data;
+  } else if (full.error) {
+    throw new Error(full.error.message);
+  } else {
+    group = full.data;
+  }
   if (!group) throw new Error("Группа не найдена");
 
   const { data: rules } = await db
@@ -560,9 +581,9 @@ export async function getGroupDetailDb(groupId: string, tenantId: string) {
     "@/lib/group-display"
   );
   const card = formatGroupCard({
-    title: group.title,
-    direction: group.direction,
-    status: group.status,
+    title: group.title as string,
+    direction: (group.direction as string | null) ?? null,
+    status: group.status as string,
     rules: rules ?? [],
   });
 
@@ -589,9 +610,18 @@ export async function getGroupDetailDb(groupId: string, tenantId: string) {
     return rank(a.status) - rank(b.status) || a.full_name.localeCompare(b.full_name, "ru");
   });
 
+  const tgChat = (group.telegram_chat_id as number | null | undefined) ?? null;
+  const bindToken = (group.telegram_bind_token as string | null | undefined) ?? null;
+  const bindExp = (group.telegram_bind_expires_at as string | null | undefined) ?? null;
+
   return {
     group: {
       ...group,
+      telegram_chat_id: tgChat,
+      telegram_linked: Boolean(tgChat),
+      telegram_bind_pending: Boolean(
+        bindToken && bindExp && new Date(bindExp) > new Date(),
+      ),
       direction_label: card.direction_label,
       schedule_label: card.schedule_label,
       status_label: card.status_label,
@@ -627,13 +657,33 @@ export async function setEnrollmentStatusDb(input: {
     .select("id, status, group_id, student_person_id")
     .single();
   if (error) throw new Error(error.message);
+
+  if (input.status === "active" && data?.student_person_id && data?.group_id) {
+    try {
+      const { sendTelegramGroupInviteForPersonDb } = await import(
+        "@/lib/group-telegram"
+      );
+      await sendTelegramGroupInviteForPersonDb(data.student_person_id, {
+        groupId: data.group_id,
+      });
+    } catch (e) {
+      console.error("[enrollment] tg invite", e);
+    }
+  }
+
   return data;
 }
 
 export async function updateGroupDb(
   groupId: string,
   tenantId: string,
-  patch: { title?: string; direction?: string | null; status?: "active" | "archived"; capacity?: number },
+  patch: {
+    title?: string;
+    direction?: string | null;
+    status?: "active" | "archived";
+    capacity?: number;
+    telegram_chat_id?: number | null;
+  },
 ) {
   const db = getAdminClient();
   const { data, error } = await db
@@ -641,7 +691,7 @@ export async function updateGroupDb(
     .update(patch)
     .eq("id", groupId)
     .eq("tenant_id", tenantId)
-    .select("id, title, direction, status, capacity, brand_id")
+    .select("id, title, direction, status, capacity, brand_id, telegram_chat_id")
     .single();
   if (error) throw new Error(error.message);
   return data;
@@ -1190,8 +1240,21 @@ export async function getPersonOnboardingStatus(personId: string) {
   const db = getAdminClient();
   const { data } = await db
     .from("persons")
-    .select("onboarding_status")
+    .select("onboarding_status, accepted_rules_at")
     .eq("id", personId)
     .maybeSingle();
-  return (data?.onboarding_status as string) ?? "complete";
+  let status = (data?.onboarding_status as string) ?? "complete";
+
+  // Heal stuck welcome: rules already accepted but status never flipped.
+  if (
+    data?.accepted_rules_at &&
+    (status === "draft" || status === "invited" || status === "activated")
+  ) {
+    await db
+      .from("persons")
+      .update({ onboarding_status: "complete" })
+      .eq("id", personId);
+    status = "complete";
+  }
+  return status;
 }

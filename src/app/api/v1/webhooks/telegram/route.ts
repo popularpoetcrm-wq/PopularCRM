@@ -18,7 +18,7 @@ type TgUser = { id: number; username?: string; first_name?: string };
 
 type TgUpdate = {
   message?: {
-    chat: { id: number; type: string };
+    chat: { id: number; type: string; title?: string };
     from?: TgUser;
     text?: string;
   };
@@ -512,10 +512,39 @@ export async function POST(req: Request) {
 
   const raw = update.message?.text?.trim() ?? "";
   const chatId = update.message?.chat.id;
+  const chat = update.message?.chat;
   const from = update.message?.from;
-  if (!chatId) return jsonOk({ ignored: true });
+  if (!chatId || !chat) return jsonOk({ ignored: true });
 
   const text = cmd(raw);
+
+  // Admin binds CRM group ↔ this Telegram group chat
+  const bindMatch = raw.match(/^\/bind(?:@\w+)?\s+(\S+)/i);
+  if (bindMatch && hasSupabase()) {
+    try {
+      const { confirmGroupTelegramBindDb } = await import("@/lib/group-telegram");
+      const result = await confirmGroupTelegramBindDb(bindMatch[1], {
+        id: chat.id,
+        type: chat.type,
+        title: chat.title,
+      });
+      await sendTelegramMessage({
+        chatId,
+        text:
+          `<b>Готово</b> — чат привязан к группе CRM\n` +
+          `${escapeHtml(result.title)}`,
+        parseMode: "HTML",
+      });
+      return jsonOk({ handled: "group_bind", group_id: result.group_id });
+    } catch (e) {
+      await sendTelegramMessage({
+        chatId,
+        text: escapeHtml(e instanceof Error ? e.message : "Не удалось привязать"),
+        parseMode: "HTML",
+      });
+      return jsonOk({ handled: "group_bind_failed" });
+    }
+  }
 
   if (raw.startsWith("/start")) {
     return jsonOk({ handled: await handleStart(chatId, from, raw) });

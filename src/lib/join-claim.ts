@@ -87,7 +87,7 @@ export async function claimJoinContactDb(raw: unknown) {
   const db = getAdminClient();
   const { data: person, error } = await db
     .from("persons")
-    .select("id, full_name, email, birth_date, tenant_id, is_minor, status")
+    .select("id, full_name, email, birth_date, tenant_id, is_minor, status, onboarding_status")
     .eq("id", parsed.data.personId)
     .in("status", ["active", "completed"])
     .maybeSingle();
@@ -136,7 +136,7 @@ export async function claimJoinContactDb(raw: unknown) {
     phone: parsed.data.phone?.trim() || null,
     telegram_username: tg,
   };
-  if (!person.is_minor) {
+  if (!person.is_minor && person.onboarding_status !== "complete") {
     patch.onboarding_status = "invited";
     patch.invited_at = new Date().toISOString();
   }

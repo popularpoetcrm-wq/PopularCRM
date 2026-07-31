@@ -142,6 +142,50 @@ export async function sendTemplatedTelegram(params: {
   return sendTelegramMessage({ chatId: params.chatId, text });
 }
 
+/** Invite link into a Telegram group/supergroup (bot must be admin). */
+export async function createTelegramChatInviteLink(params: {
+  chatId: number | string;
+  name?: string;
+  memberLimit?: number;
+  expireDate?: number;
+}) {
+  const env = getEnv();
+  if (!env.TELEGRAM_BOT_TOKEN) {
+    const fake = `https://t.me/+dev_${params.chatId}`;
+    console.info("[telegram:inviteLink]", params, fake);
+    return { ok: true as const, invite_link: fake };
+  }
+  const res = await fetch(
+    `https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/createChatInviteLink`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        chat_id: params.chatId,
+        name: params.name,
+        member_limit: params.memberLimit,
+        expire_date: params.expireDate,
+      }),
+    },
+  );
+  const json = (await res.json()) as {
+    ok: boolean;
+    result?: { invite_link?: string };
+    description?: string;
+  };
+  if (!json.ok) {
+    return {
+      ok: false as const,
+      invite_link: null,
+      error: json.description ?? "createChatInviteLink failed",
+    };
+  }
+  return {
+    ok: true as const,
+    invite_link: json.result?.invite_link ?? null,
+  };
+}
+
 /** Validate Telegram Mini App initData (HMAC-SHA256). */
 export function validateTelegramInitData(initData: string): {
   ok: boolean;

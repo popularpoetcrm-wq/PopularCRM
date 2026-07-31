@@ -29,13 +29,22 @@ export async function GET() {
   }
 }
 
+const emptyToNull = (v: unknown) =>
+  typeof v === "string" && v.trim() === "" ? null : v;
+
 const profileSchema = z.object({
   full_name: z.string().min(2).optional(),
-  phone: z.string().optional().nullable(),
-  email: z.string().email().optional().nullable(),
-  birth_date: z.string().optional().nullable(),
-  tshirt_size: z.string().optional().nullable(),
-  telegram_username: z.string().optional().nullable(),
+  phone: z.preprocess(emptyToNull, z.string().nullable().optional()),
+  email: z.preprocess(
+    emptyToNull,
+    z.string().email().nullable().optional(),
+  ),
+  birth_date: z.preprocess(emptyToNull, z.string().nullable().optional()),
+  tshirt_size: z.preprocess(emptyToNull, z.string().nullable().optional()),
+  telegram_username: z.preprocess(
+    emptyToNull,
+    z.string().nullable().optional(),
+  ),
 });
 
 const completeSchema = z.object({
@@ -46,7 +55,8 @@ const completeSchema = z.object({
   children: z
     .array(
       profileSchema.extend({
-        id: z.string().uuid().or(z.string().min(1)),
+        id: z.string().min(1),
+        full_name: z.string().min(1).optional(),
       }),
     )
     .optional(),

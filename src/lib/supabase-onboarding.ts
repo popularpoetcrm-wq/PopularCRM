@@ -290,10 +290,13 @@ export async function invitePersonDb(
     .single();
   if (invErr) throw new Error(invErr.message);
 
+  // Never downgrade someone who already finished welcome.
+  const prev = (target.onboarding_status as string) ?? "draft";
+  const nextStatus = prev === "complete" ? "complete" : "invited";
   await db
     .from("persons")
     .update({
-      onboarding_status: "invited",
+      onboarding_status: nextStatus,
       invited_at: new Date().toISOString(),
     })
     .eq("id", target.id);
@@ -323,7 +326,7 @@ export async function invitePersonDb(
       id: target.id,
       full_name: target.full_name,
       email: target.email,
-      onboarding_status: "invited",
+      onboarding_status: nextStatus,
     },
   };
 }
@@ -589,18 +592,6 @@ export async function completeOnboardingDb(
   if (input.acceptPhoto === false) {
     throw new Error("Нужно принять согласие на фото (или отметьте чекбокс)");
   }
-  if (input.profile) {
-    await updatePersonProfileDb(personId, input.profile);
-  }
-  if (input.children?.length) {
-    const kids = await getChildrenForParentDb(personId);
-    const allowed = new Set(kids.map((k) => k.id));
-    for (const child of input.children) {
-      if (!allowed.has(child.id)) continue;
-      const { id, ...patch } = child;
-      await updatePersonProfileDb(id, patch);
-    }
-  }
 
   const db = getAdminClient();
   const { data: person } = await db
@@ -610,38 +601,75 @@ export async function completeOnboardingDb(
     .maybeSingle();
   if (!person) throw new Error("Person not found");
 
-  const { acceptConsentsDb } = await import("@/lib/consents");
-  const { REQUIRED_CONSENT_KEYS } = await import("@/lib/legal");
-  await acceptConsentsDb({
-    personId,
-    tenantId: person.tenant_id,
-    keys: [...REQUIRED_CONSENT_KEYS],
-    acceptedByPersonId: personId,
-    ip: input.ip,
-    userAgent: input.userAgent,
-  });
+  // Mark complete FIRST so a later consent/profile glitch can't trap the user.
+  const now = new Date().toISOString();
+  const { error: statusErr } = await db
+    .from("persons")
+    .update({
+      onboarding_status: "complete",
+      accepted_rules_at: now,
+    })
+    .eq("id", personId);
+  if (statusErr) throw new Error(statusErr.message);
 
-  // Parent completing onboarding also stamps consents for linked children
-  const kids = await getChildrenForParentDb(personId);
-  for (const child of kids) {
+  if (input.profile) {
+    try {
+      await updatePersonProfileDb(personId, input.profile);
+    } catch (e) {
+      console.error("[onboarding] profile update", e);
+    }
+  }
+  if (input.children?.length) {
+    const kids = await getChildrenForParentDb(personId);
+    const allowed = new Set(kids.map((k) => k.id));
+    for (const child of input.children) {
+      if (!allowed.has(child.id)) continue;
+      const { id, ...patch } = child;
+      try {
+        await updatePersonProfileDb(id, patch);
+      } catch (e) {
+        console.error("[onboarding] child profile", id, e);
+      }
+    }
+  }
+
+  try {
+    const { acceptConsentsDb } = await import("@/lib/consents");
+    const { REQUIRED_CONSENT_KEYS } = await import("@/lib/legal");
     await acceptConsentsDb({
-      personId: child.id,
+      personId,
       tenantId: person.tenant_id,
       keys: [...REQUIRED_CONSENT_KEYS],
       acceptedByPersonId: personId,
       ip: input.ip,
       userAgent: input.userAgent,
     });
+
+    const kids = await getChildrenForParentDb(personId);
+    for (const child of kids) {
+      await acceptConsentsDb({
+        personId: child.id,
+        tenantId: person.tenant_id,
+        keys: [...REQUIRED_CONSENT_KEYS],
+        acceptedByPersonId: personId,
+        ip: input.ip,
+        userAgent: input.userAgent,
+      });
+    }
+  } catch (e) {
+    // Consents table may be missing (migration 007) — status already complete.
+    console.error("[onboarding] consents", e);
   }
 
-  const { error } = await db
-    .from("persons")
-    .update({
-      onboarding_status: "complete",
-      accepted_rules_at: new Date().toISOString(),
-    })
-    .eq("id", personId);
-  if (error) throw new Error(error.message);
+  try {
+    const { sendTelegramGroupInviteForPersonDb } = await import(
+      "@/lib/group-telegram"
+    );
+    await sendTelegramGroupInviteForPersonDb(personId);
+  } catch (e) {
+    console.error("[onboarding] tg group invite", e);
+  }
+
   return getWelcomePayloadDb(personId);
 }
 
@@ -711,6 +739,15 @@ export async function confirmTelegramLinkDb(
     verified_at: new Date().toISOString(),
   });
   if (tgErr) throw new Error(tgErr.message);
+
+  try {
+    const { sendTelegramGroupInviteForPersonDb } = await import(
+      "@/lib/group-telegram"
+    );
+    await sendTelegramGroupInviteForPersonDb(row.person_id);
+  } catch (e) {
+    console.error("[telegram-link] group invite", e);
+  }
 
   return { person_id: row.person_id, username, chat_id: opts?.chat_id ?? null };
 }

@@ -156,6 +156,7 @@ export default function WelcomePage() {
       return;
     }
     setBusy(true);
+    setMessage("");
     const children = Object.entries(childForms).map(([id, c]) => ({
       id,
       full_name: c.full_name,
@@ -183,11 +184,19 @@ export default function WelcomePage() {
     const json = await res.json();
     setBusy(false);
     if (!json.ok) {
-      setMessage(json.error);
+      setMessage(json.error ?? "Не удалось завершить онбординг");
       return;
     }
-    router.replace("/cabinet");
-    router.refresh();
+    if (
+      json.data?.onboarding_status &&
+      json.data.onboarding_status !== "complete"
+    ) {
+      setMessage(
+        `Статус всё ещё «${json.data.onboarding_status}». Обнови страницу или напиши студии.`,
+      );
+      return;
+    }
+    window.location.href = "/cabinet";
   }
 
   if (loading || !data) {
@@ -400,10 +409,7 @@ export default function WelcomePage() {
           </p>
         ) : (
           <p className="mt-2 text-fog">
-            Пакета пока нет.{" "}
-            <Link href="/cabinet/payments" className="underline">
-              Оплатить
-            </Link>
+            Пакета пока нет — после онбординга откроется раздел оплаты.
           </p>
         )}
       </section>

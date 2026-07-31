@@ -151,8 +151,23 @@ export async function POST(req: Request) {
           .select("id")
           .single();
         enrollmentId = enr.data?.id;
+        try {
+          const { sendTelegramGroupInviteForPersonDb } = await import(
+            "@/lib/group-telegram"
+          );
+          await sendTelegramGroupInviteForPersonDb(child.id, {
+            groupId: d.group_id,
+          });
+        } catch (e) {
+          console.error("[students] tg invite child", e);
+        }
       }
-      return jsonOk({ child, parent, enrollmentId });
+      let invite = null;
+      if (d.invite !== false) {
+        const { invitePersonDb } = await import("@/lib/supabase-onboarding");
+        invite = await invitePersonDb(parent.id, { actorId: user.personId });
+      }
+      return jsonOk({ child, parent, enrollmentId, invite });
     }
 
     const parsed = createSchema.safeParse(body);
@@ -192,8 +207,23 @@ export async function POST(req: Request) {
         .select("id")
         .single();
       enrollmentId = enr.data?.id;
+      try {
+        const { sendTelegramGroupInviteForPersonDb } = await import(
+          "@/lib/group-telegram"
+        );
+        await sendTelegramGroupInviteForPersonDb(person.id, {
+          groupId: parsed.data.group_id,
+        });
+      } catch (e) {
+        console.error("[students] tg invite adult", e);
+      }
     }
-    return jsonOk({ person, enrollmentId });
+    let invite = null;
+    if (parsed.data.invite !== false) {
+      const { invitePersonDb } = await import("@/lib/supabase-onboarding");
+      invite = await invitePersonDb(person.id, { actorId: user.personId });
+    }
+    return jsonOk({ person, enrollmentId, invite });
   }
 
   const childParsed = childSchema.safeParse(body);
