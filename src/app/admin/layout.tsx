@@ -13,7 +13,7 @@ const allLinks = [
   { href: "/admin/sessions", label: "Журнал", roles: "staff" as const },
   { href: "/admin/attendance", label: "Посещаемость", roles: "staff" as const },
   { href: "/admin/payments", label: "Оплаты", roles: "admin" as const },
-  { href: "/admin/offers", label: "Пробные (Tickets)", roles: "admin" as const },
+  { href: "/admin/offers", label: "Календарь", roles: "admin" as const },
   { href: "/admin/invoices", label: "Фактуры", roles: "admin" as const },
   { href: "/admin/exports", label: "Экспорт", roles: "staff" as const },
   { href: "/admin/audit", label: "История", roles: "admin" as const },
