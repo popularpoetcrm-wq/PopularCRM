@@ -5,11 +5,117 @@ import {
   escapeHtml,
 } from "@/integrations/telegram";
 import { getChildrenForParentDb } from "@/lib/supabase-data";
+import { getEnv } from "@/lib/env";
+
+function appBaseUrl() {
+  return (getEnv().NEXT_PUBLIC_APP_URL || "https://popularcrm.vercel.app").replace(
+    /\/$/,
+    "",
+  );
+}
+
+async function staffTelegramChatIds(tenantId: string, preferPersonId?: string) {
+  const db = getAdminClient();
+  const { data: roles } = await db
+    .from("person_roles")
+    .select("person_id, role")
+    .eq("tenant_id", tenantId)
+    .in("role", ["admin", "owner"])
+    .is("revoked_at", null);
+  const ids = [
+    ...new Set(
+      [
+        ...(preferPersonId ? [preferPersonId] : []),
+        ...(roles ?? []).map((r) => r.person_id as string),
+      ].filter(Boolean),
+    ),
+  ];
+  if (!ids.length) return [] as number[];
+
+  const { data: identities } = await db
+    .from("telegram_identities")
+    .select("person_id, chat_id")
+    .in("person_id", ids)
+    .not("chat_id", "is", null);
+
+  const byPerson = new Map(
+    (identities ?? []).map((i) => [i.person_id as string, i.chat_id as number]),
+  );
+
+  // Prefer the actor who clicked the button, then other admins with TG.
+  const ordered: number[] = [];
+  const seen = new Set<number>();
+  if (preferPersonId && byPerson.has(preferPersonId)) {
+    const c = byPerson.get(preferPersonId)!;
+    ordered.push(c);
+    seen.add(c);
+  }
+  for (const id of ids) {
+    const c = byPerson.get(id);
+    if (c != null && !seen.has(c)) {
+      ordered.push(c);
+      seen.add(c);
+    }
+  }
+  return ordered;
+}
+
+async function notifyStaffBindInstructions(params: {
+  tenantId: string;
+  actorPersonId?: string;
+  groupId: string;
+  groupTitle: string;
+  command: string;
+  expiresAt: string;
+}) {
+  const chats = await staffTelegramChatIds(
+    params.tenantId,
+    params.actorPersonId,
+  );
+  if (!chats.length) {
+    return { dm_sent: 0, dm_hint: "нет админов с привязанным Telegram" };
+  }
+
+  const when = new Date(params.expiresAt).toLocaleString("ru-RU", {
+    timeZone: "Europe/Warsaw",
+  });
+  const adminUrl = `${appBaseUrl()}/admin/groups/${params.groupId}`;
+  const text =
+    `<b>Привязка Telegram-группы</b>\n` +
+    `CRM: <b>${escapeHtml(params.groupTitle)}</b>\n\n` +
+    `1. Добавь бота в нужный TG-чат <b>админом</b>\n` +
+    `2. В этом чате отправь команду:\n` +
+    `<code>${escapeHtml(params.command)}</code>\n\n` +
+    `Код действует до ${escapeHtml(when)}\n` +
+    `<a href="${escapeHtml(adminUrl)}">Карточка группы в CRM →</a>`;
+
+  let dm_sent = 0;
+  for (const chatId of chats) {
+    try {
+      await sendTelegramMessage({
+        chatId,
+        text,
+        parseMode: "HTML",
+      });
+      dm_sent += 1;
+    } catch (e) {
+      console.error("[group-telegram] dm bind", chatId, e);
+    }
+  }
+  return {
+    dm_sent,
+    dm_hint:
+      dm_sent > 0
+        ? `инструкция ушла в Telegram (${dm_sent})`
+        : "не удалось отправить в Telegram",
+  };
+}
 
 /** Create a short-lived /bind token for linking a TG group chat to a CRM group. */
 export async function issueGroupTelegramBindTokenDb(
   groupId: string,
   tenantId: string,
+  opts?: { actorPersonId?: string },
 ) {
   const db = getAdminClient();
   const token = `g${Math.random().toString(36).slice(2, 10)}`;
@@ -32,13 +138,25 @@ export async function issueGroupTelegramBindTokenDb(
     }
     throw new Error(error.message);
   }
+
+  const command = `/bind ${token}`;
+  const dm = await notifyStaffBindInstructions({
+    tenantId,
+    actorPersonId: opts?.actorPersonId,
+    groupId: data.id as string,
+    groupTitle: data.title as string,
+    command,
+    expiresAt: expires,
+  });
+
   return {
     group_id: data.id as string,
     title: data.title as string,
     token,
     expires_at: expires,
-    command: `/bind ${token}`,
+    command,
     telegram_chat_id: (data.telegram_chat_id as number | null) ?? null,
+    ...dm,
   };
 }
 
@@ -82,12 +200,30 @@ export async function confirmGroupTelegramBindDb(
     .eq("id", group.id);
   if (upErr) throw new Error(upErr.message);
 
-  return {
+  const result = {
     group_id: group.id as string,
     title: group.title as string,
     telegram_chat_id: chat.id,
     chat_title: chat.title ?? null,
   };
+
+  try {
+    const chats = await staffTelegramChatIds(group.tenant_id as string);
+    const chatLabel = chat.title
+      ? escapeHtml(chat.title)
+      : `chat_id ${chat.id}`;
+    const text =
+      `<b>Готово</b> — Telegram привязан\n` +
+      `CRM: <b>${escapeHtml(result.title)}</b>\n` +
+      `Чат: ${chatLabel}`;
+    for (const dmChatId of chats) {
+      await sendTelegramMessage({ chatId: dmChatId, text, parseMode: "HTML" });
+    }
+  } catch (e) {
+    console.error("[group-telegram] dm bind ok", e);
+  }
+
+  return result;
 }
 
 export async function unbindGroupTelegramDb(groupId: string, tenantId: string) {

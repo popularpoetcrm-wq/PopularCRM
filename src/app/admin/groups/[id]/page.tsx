@@ -134,8 +134,10 @@ export default function AdminGroupDetailPage() {
       return;
     }
     setBindCmd(json.data.command as string);
+    const dmHint =
+      typeof json.data.dm_hint === "string" ? ` ${json.data.dm_hint}.` : "";
     setMsg(
-      "Код на 1 час. Добавь бота в TG-группу (админом) и отправь там команду ниже.",
+      `Код на 1 час для «${json.data.title}». Добавь бота в TG-группу (админом) и отправь команду ниже.${dmHint}`,
     );
     await load();
   }

@@ -52,7 +52,11 @@ export async function PATCH(req: Request, ctx: Ctx) {
 
   try {
     if (parsed.data.action === "telegram_bind_token") {
-      return jsonOk(await issueGroupTelegramBindTokenDb(id, user.tenantId));
+      return jsonOk(
+        await issueGroupTelegramBindTokenDb(id, user.tenantId, {
+          actorPersonId: user.personId,
+        }),
+      );
     }
     if (parsed.data.action === "telegram_unbind") {
       return jsonOk(await unbindGroupTelegramDb(id, user.tenantId));
