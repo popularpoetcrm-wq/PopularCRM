@@ -135,7 +135,7 @@ export default function MakeupsPage() {
         <p className="mt-2 text-fog">
           Появится, если предупредил «не приду» ≥{STUDIO_POLICY.absentNotifyCutoffHours}{" "}
           ч. Можно отработать на <strong>другой группе</strong> того же бренда
-          (пропустил импро → пришёл на актёрку) или на пробное с popularpoet.pl.
+          (пропустил импро → пришёл на актёрку) или на пробное с popularTickets.pl.
           Бронь/отмена за {STUDIO_POLICY.makeupCutoffHours} ч.
         </p>
         <p className="mt-1 text-sm text-fog">
@@ -208,7 +208,7 @@ export default function MakeupsPage() {
                   onClick={() => book(m.id)}
                   disabled={!options.length || busyId === m.id}
                 >
-                  Забронировать
+                  {busyId === m.id ? "Бронируем…" : "Забронировать"}
                 </button>
               </div>
             ) : null}

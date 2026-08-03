@@ -1,5 +1,8 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { createSaldeoInvoice } from "@/integrations/saldeo";
+import {
+  createSaldeoInvoice,
+  fetchSaldeoInvoiceById,
+} from "@/integrations/saldeo";
 import { enqueueNotification } from "@/domain/notifications";
 import { writeAudit } from "@/domain/audit";
 
@@ -92,12 +95,14 @@ export async function requestInvoice(
 export async function syncInvoiceToSaldeo(
   db: SupabaseClient,
   invoiceId: string,
+  tenantId?: string,
 ) {
-  const { data: invoice, error } = await db
+  let invoiceQuery = db
     .from("invoices")
     .select("*, payments(*), persons:buyer_person_id(*)")
-    .eq("id", invoiceId)
-    .single();
+    .eq("id", invoiceId);
+  if (tenantId) invoiceQuery = invoiceQuery.eq("tenant_id", tenantId);
+  const { data: invoice, error } = await invoiceQuery.single();
   if (error) throw error;
 
   try {
@@ -121,25 +126,13 @@ export async function syncInvoiceToSaldeo(
         invoice_number: result.invoiceNumber ?? null,
         ksef_number: result.ksefNumber ?? null,
         pdf_url: result.pdfUrl ?? null,
-        issued_at: new Date().toISOString(),
+        error_message: null,
       })
       .eq("id", invoiceId)
+      .eq("tenant_id", invoice.tenant_id)
       .select("*")
       .single();
     if (updErr) throw updErr;
-
-    if (invoice.buyer_person_id) {
-      await enqueueNotification(db, {
-        tenantId: invoice.tenant_id,
-        recipientPersonId: invoice.buyer_person_id,
-        channel: "telegram",
-        templateCode: "invoice.ready",
-        payload: {
-          invoiceNumber: updated.invoice_number,
-          pdfUrl: updated.pdf_url,
-        },
-      });
-    }
 
     await writeAudit(db, {
       tenantId: invoice.tenant_id,
@@ -155,7 +148,80 @@ export async function syncInvoiceToSaldeo(
     await db
       .from("invoices")
       .update({ status: "failed", error_message: message })
-      .eq("id", invoiceId);
+      .eq("id", invoiceId)
+      .eq("tenant_id", invoice.tenant_id);
+    throw e;
+  }
+}
+
+/**
+ * Saldeo creates the document asynchronously. A number alone is not enough to
+ * call it ready: we wait for the PDF link, then notify the buyer exactly once.
+ */
+export async function refreshInvoiceFromSaldeo(
+  db: SupabaseClient,
+  invoiceId: string,
+  tenantId?: string,
+) {
+  let invoiceQuery = db
+    .from("invoices")
+    .select("*")
+    .eq("id", invoiceId);
+  if (tenantId) invoiceQuery = invoiceQuery.eq("tenant_id", tenantId);
+  const { data: invoice, error } = await invoiceQuery.single();
+  if (error) throw error;
+  if (!invoice.saldeo_invoice_id) {
+    throw new Error("У фактуры ещё нет идентификатора Saldeo");
+  }
+
+  try {
+    const result = await fetchSaldeoInvoiceById(invoice.saldeo_invoice_id);
+    const ready = Boolean(result.pdfUrl);
+    const { data: updated, error: updateError } = await db
+      .from("invoices")
+      .update({
+        status: ready ? "issued" : "sent_to_saldeo",
+        invoice_number: result.number ?? invoice.invoice_number ?? null,
+        ksef_number: result.ksefNumber ?? invoice.ksef_number ?? null,
+        pdf_url: result.pdfUrl ?? invoice.pdf_url ?? null,
+        issued_at: ready ? invoice.issued_at ?? new Date().toISOString() : null,
+        error_message: null,
+      })
+      .eq("id", invoiceId)
+      .eq("tenant_id", invoice.tenant_id)
+      .select("*")
+      .single();
+    if (updateError) throw updateError;
+
+    if (ready && invoice.status !== "issued" && invoice.buyer_person_id) {
+      await enqueueNotification(db, {
+        tenantId: invoice.tenant_id,
+        recipientPersonId: invoice.buyer_person_id,
+        channel: "telegram",
+        templateCode: "invoice.ready",
+        payload: {
+          invoiceNumber: updated.invoice_number,
+          pdfUrl: updated.pdf_url,
+        },
+      });
+    }
+
+    await writeAudit(db, {
+      tenantId: invoice.tenant_id,
+      action: ready ? "invoice.saldeo_issued" : "invoice.saldeo_checked",
+      entityType: "invoice",
+      entityId: invoice.id,
+      after: updated,
+    });
+
+    return updated;
+  } catch (e) {
+    const message = e instanceof Error ? e.message : "Saldeo status check failed";
+    await db
+      .from("invoices")
+      .update({ status: "failed", error_message: message })
+      .eq("id", invoiceId)
+      .eq("tenant_id", invoice.tenant_id);
     throw e;
   }
 }

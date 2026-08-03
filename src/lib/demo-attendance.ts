@@ -146,6 +146,8 @@ export function markAttendanceDemo(input: {
   actor?: string;
   /** If true, fill missing roster as present (default came) */
   fillDefaultsPresent?: boolean;
+  /** A range absence sends one summary instead of one message per class. */
+  notifyMakeup?: boolean;
 }) {
   const state = getDemoState();
   const session = state.sessions.find((s) => s.id === input.sessionId);
@@ -253,12 +255,14 @@ export function markAttendanceDemo(input: {
         ).toISOString(),
       });
       createdMakeups.push(makeupId);
-      notify(
-        item.studentPersonId,
-        "makeup.created",
-        `Создана отработка (до ${addDays(new Date(), STUDIO_POLICY.makeupValidityDays).toLocaleDateString()}). Забронируй в кабинете.`,
-        "telegram",
-      );
+      if (input.notifyMakeup !== false) {
+        notify(
+          item.studentPersonId,
+          "makeup.created",
+          `Создана отработка (до ${addDays(new Date(), STUDIO_POLICY.makeupValidityDays).toLocaleDateString()}). Забронируй в кабинете.`,
+          "telegram",
+        );
+      }
     }
 
     audit("attendance.marked", "attendance", item.studentPersonId, item, input.actor);
@@ -275,6 +279,7 @@ export function reportCantAttendDemo(input: {
   /** When parent acts for child */
   studentPersonId?: string;
   actorName?: string;
+  notifyMakeup?: boolean;
 }) {
   const state = getDemoState();
   const session = state.sessions.find((s) => s.id === input.sessionId);
@@ -339,6 +344,7 @@ export function reportCantAttendDemo(input: {
       },
     ],
     actor: input.actorName,
+    notifyMakeup: input.notifyMakeup,
   });
 
   const cancelInfo = result.cancelInfo;
@@ -351,6 +357,146 @@ export function reportCantAttendDemo(input: {
   }
 
   return { ...result, message, cancelInfo, studentPersonId: studentId };
+}
+
+type PlannedAbsenceItem = {
+  sessionId: string;
+  title: string;
+  startsAt: string;
+  studentPersonId: string;
+};
+
+type PlannedAbsenceSkipped = PlannedAbsenceItem & { reason: string };
+
+function demoPlannedAbsenceCandidates(input: {
+  personId: string;
+  studentPersonId?: string;
+  startsOn: string;
+  endsOn: string;
+}) {
+  const state = getDemoState();
+  const studentPersonId = input.studentPersonId ?? input.personId;
+  if (studentPersonId !== input.personId) {
+    const allowed = getExtendedDemo().contacts.some(
+      (contact) =>
+        contact.contact_person_id === input.personId &&
+        contact.student_person_id === studentPersonId &&
+        ["parent", "guardian"].includes(contact.relation_type),
+    );
+    if (!allowed) throw new Error("Нет прав отметить отсутствие за этого ребёнка");
+  }
+
+  const enrollmentByGroup = new Map(
+    state.enrollments
+      .filter(
+        (enrollment) =>
+          enrollment.student_person_id === studentPersonId &&
+          enrollment.status === "active",
+      )
+      .map((enrollment) => [enrollment.group_id, enrollment]),
+  );
+  const eligible: PlannedAbsenceItem[] = [];
+  const skipped: PlannedAbsenceSkipped[] = [];
+
+  for (const session of state.sessions) {
+    const enrollment = enrollmentByGroup.get(session.group_id);
+    if (!enrollment) continue;
+    const ymd = new Intl.DateTimeFormat("en-CA", {
+      timeZone: "Europe/Warsaw",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).format(new Date(session.starts_at));
+    if (ymd < input.startsOn || ymd > input.endsOn) continue;
+    const item: PlannedAbsenceItem = {
+      sessionId: session.id,
+      title: session.title,
+      startsAt: session.starts_at,
+      studentPersonId,
+    };
+    if (session.status !== "scheduled") {
+      skipped.push({ ...item, reason: "занятие уже отменено или завершено" });
+      continue;
+    }
+    if (differenceInMinutes(new Date(session.starts_at), new Date()) < ABSENT_CUTOFF) {
+      skipped.push({
+        ...item,
+        reason: `предупреждать нужно минимум за ${STUDIO_POLICY.absentNotifyCutoffHours} ч`,
+      });
+      continue;
+    }
+    const existing = state.attendance.find(
+      (attendance) =>
+        attendance.session_id === session.id &&
+        attendance.student_person_id === studentPersonId,
+    );
+    if (isWontCome(existing?.status)) {
+      skipped.push({ ...item, reason: "отсутствие уже отмечено" });
+      continue;
+    }
+    if (existing) {
+      skipped.push({ ...item, reason: "посещаемость уже отмечена" });
+      continue;
+    }
+    eligible.push(item);
+  }
+
+  return { eligible, skipped, studentPersonId };
+}
+
+/** Preview or move every affected class for a holiday/trip in demo mode. */
+export function plannedAbsenceDemo(input: {
+  personId: string;
+  studentPersonId?: string;
+  startsOn: string;
+  endsOn: string;
+  action: "preview" | "apply";
+  actorName?: string;
+}) {
+  const candidates = demoPlannedAbsenceCandidates(input);
+  if (input.action === "preview") return candidates;
+
+  let moved = 0;
+  let createdMakeups = 0;
+  const skipped = [...candidates.skipped];
+  for (const item of candidates.eligible) {
+    try {
+      const result = reportCantAttendDemo({
+        sessionId: item.sessionId,
+        personId: input.personId,
+        studentPersonId: candidates.studentPersonId,
+        actorName: input.actorName,
+        notifyMakeup: false,
+      });
+      moved += 1;
+      createdMakeups +=
+        "createdMakeups" in result ? (result.createdMakeups?.length ?? 0) : 0;
+    } catch (error) {
+      skipped.push({
+        ...item,
+        reason: error instanceof Error ? error.message : "не удалось перенести",
+      });
+    }
+  }
+
+  if (createdMakeups > 0) {
+    notify(
+      candidates.studentPersonId,
+      "makeup.planned_absence",
+      `Отсутствие отмечено. Создано отработок: ${createdMakeups}. Выбери новую дату в кабинете.`,
+      "telegram",
+    );
+  }
+  return {
+    ...candidates,
+    skipped,
+    moved,
+    createdMakeups,
+    message:
+      moved > 0
+        ? `Перенесли занятий: ${moved}. Отработок создано: ${createdMakeups}.`
+        : "Нет занятий, которые можно перенести на выбранные даты.",
+  };
 }
 
 /** Close session: everyone without explicit won't-come = present */

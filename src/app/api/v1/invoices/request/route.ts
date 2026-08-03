@@ -25,9 +25,7 @@ export async function POST(req: Request) {
     const invoice = {
       id: `inv-${nanoid(6)}`,
       payment_id: payment.id,
-      status: "sent_to_saldeo",
-      invoice_number: `FV/DEMO/${Date.now()}`,
-      pdf_url: `/cabinet/invoices?preview=1`,
+      status: "queued",
     };
     state.invoices.unshift(invoice);
     return jsonOk(invoice);
@@ -36,6 +34,7 @@ export async function POST(req: Request) {
   try {
     const { requestInvoice, syncInvoiceToSaldeo } = await import("@/domain/invoices");
     const { getAdminClient } = await import("@/lib/supabase/admin");
+    const { getSaldeoSetup } = await import("@/integrations/saldeo");
     const db = getAdminClient();
     const invoice = await requestInvoice(db, {
       tenantId: user.tenantId,
@@ -51,7 +50,10 @@ export async function POST(req: Request) {
       return jsonOk(invoice);
     }
 
-    return jsonOk(await syncInvoiceToSaldeo(db, invoice.id));
+    const setup = getSaldeoSetup();
+    if (!setup.configured) return jsonOk(invoice);
+
+    return jsonOk(await syncInvoiceToSaldeo(db, invoice.id, user.tenantId));
   } catch (e) {
     return jsonError(e instanceof Error ? e.message : "fail", 400);
   }

@@ -53,11 +53,11 @@ function MagicConsume() {
   }, [token, next, router]);
 
   return (
-    <main className="mx-auto flex min-h-screen max-w-md flex-col justify-center px-6">
+    <main className="mx-auto flex min-h-screen w-full max-w-md flex-col justify-center px-6">
       <Link href="/" className="mb-8 font-display text-2xl">
-        Popular
+        Popular Poet
       </Link>
-      <div className="glass glass-strong p-8">
+      <div className="glass glass-strong p-5 sm:p-8">
         <h1 className="font-display text-3xl">Вход по ссылке</h1>
         {status === "working" ? (
           <p className="mt-4 text-fog">Открываем кабинет…</p>
@@ -82,7 +82,7 @@ export default function MagicLoginPage() {
   return (
     <Suspense
       fallback={
-        <main className="mx-auto flex min-h-screen max-w-md items-center justify-center px-6">
+        <main className="mx-auto flex min-h-screen w-full max-w-md items-center justify-center px-6">
           <p className="text-fog">Загрузка…</p>
         </main>
       }

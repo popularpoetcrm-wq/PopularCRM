@@ -68,8 +68,8 @@ function SessionsArchiveInner() {
         </p>
       </div>
 
-      <div className="flex flex-wrap items-end gap-3">
-        <label className="text-sm font-semibold">
+      <div className="grid gap-3 sm:flex sm:flex-wrap sm:items-end">
+        <label className="w-full text-sm font-semibold sm:w-auto">
           Месяц
           <input
             type="month"
@@ -78,7 +78,7 @@ function SessionsArchiveInner() {
             onChange={(e) => setMonth(e.target.value)}
           />
         </label>
-        <label className="min-w-[14rem] flex-1 text-sm font-semibold">
+        <label className="w-full text-sm font-semibold sm:min-w-[14rem] sm:flex-1">
           Группа
           <select
             className="input mt-2"
@@ -94,12 +94,12 @@ function SessionsArchiveInner() {
             ))}
           </select>
         </label>
-        <Link href="/admin/attendance" className="btn btn-stage text-sm">
+        <Link href="/admin/attendance" className="btn btn-stage w-full text-sm sm:w-auto">
           Отметить день
         </Link>
         <button
           type="button"
-          className="btn btn-ghost text-sm"
+          className="btn btn-ghost w-full text-sm sm:w-auto"
           disabled={busy}
           onClick={async () => {
             setBusy(true);

@@ -79,11 +79,19 @@ export async function POST(req: Request) {
       .single();
     if (!enrollment) return jsonError("Enrollment not found", 404);
 
-    if (
-      !isAdmin(user.roles) &&
-      enrollment.student_person_id !== user.personId &&
-      parsed.data.payerPersonId !== user.personId
-    ) {
+    let canPayForStudent = enrollment.student_person_id === user.personId;
+    if (!canPayForStudent && !isAdmin(user.roles)) {
+      const { data: contact } = await db
+        .from("student_contacts")
+        .select("id")
+        .eq("student_person_id", enrollment.student_person_id)
+        .eq("contact_person_id", user.personId)
+        .eq("can_pay", true)
+        .in("relation_type", ["parent", "guardian", "payer"])
+        .maybeSingle();
+      canPayForStudent = Boolean(contact);
+    }
+    if (!isAdmin(user.roles) && !canPayForStudent) {
       return jsonError("Forbidden", 403);
     }
 
@@ -97,11 +105,7 @@ export async function POST(req: Request) {
       if (existingError || !existing) {
         return jsonError("Начисление не найдено", 404);
       }
-      if (
-        !isAdmin(user.roles) &&
-        existing.payer_person_id !== user.personId &&
-        enrollment.student_person_id !== user.personId
-      ) {
+      if (!isAdmin(user.roles) && !canPayForStudent) {
         return jsonError("Forbidden", 403);
       }
       if (!["pending", "partial"].includes(existing.status)) {
@@ -183,7 +187,11 @@ export async function POST(req: Request) {
       tenantId: user.tenantId,
       enrollmentId: parsed.data.enrollmentId!,
       planId: plan.id,
-      payerPersonId: parsed.data.payerPersonId ?? user.personId,
+      // A client must never create a charge in somebody else's name.
+      payerPersonId:
+        isAdmin(user.roles) && parsed.data.payerPersonId
+          ? parsed.data.payerPersonId
+          : user.personId,
       amount: planAmount,
       currency: plan.currency || parsed.data.currency,
       description: parsed.data.description ?? plan.name,

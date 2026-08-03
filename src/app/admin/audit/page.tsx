@@ -46,7 +46,7 @@ export default function AdminAuditPage() {
             Изменения в CRM и состояние отправленных уведомлений.
           </p>
         </div>
-        <button type="button" className="btn btn-ghost" onClick={load}>
+        <button type="button" className="btn btn-ghost w-full sm:w-auto" onClick={load}>
           Обновить
         </button>
       </div>

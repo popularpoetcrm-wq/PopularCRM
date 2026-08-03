@@ -272,15 +272,15 @@ export default function AdminStudentsPage() {
         <p className="text-fog">
           По группам · взрослые · ребёнок+родитель · CSV · инвайты
         </p>
-        <div className="mt-3 flex flex-wrap gap-2">
-          <button type="button" className="btn btn-primary" onClick={openAccessForAll}>
+        <div className="mt-3 grid gap-2 sm:flex sm:flex-wrap">
+          <button type="button" className="btn btn-primary w-full sm:w-auto" onClick={openAccessForAll}>
             Открыть кабинет всем
           </button>
-          <button type="button" className="btn btn-ghost" onClick={inviteSelected}>
+          <button type="button" className="btn btn-ghost w-full sm:w-auto" onClick={inviteSelected}>
             Инвайт выбранным
           </button>
           <a
-            className="btn btn-stage"
+            className="btn btn-stage w-full sm:w-auto"
             href="/join"
             target="_blank"
             rel="noreferrer"
@@ -314,17 +314,17 @@ export default function AdminStudentsPage() {
         </section>
       ) : null}
 
-      <div className="flex flex-wrap gap-2">
+      <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
         <button
           type="button"
-          className={`btn ${mode === "adult" ? "btn-primary" : "btn-ghost"}`}
+          className={`btn min-w-0 ${mode === "adult" ? "btn-primary" : "btn-ghost"}`}
           onClick={() => setMode("adult")}
         >
           Взрослый
         </button>
         <button
           type="button"
-          className={`btn ${mode === "kids" ? "btn-primary" : "btn-ghost"}`}
+          className={`btn min-w-0 ${mode === "kids" ? "btn-primary" : "btn-ghost"}`}
           onClick={() => setMode("kids")}
         >
           Kids: ребёнок + родитель

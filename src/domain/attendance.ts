@@ -2,7 +2,11 @@ import { addDays, differenceInMinutes } from "date-fns";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { BulkAttendanceItem, PackagePlanSnapshot } from "@/lib/types/domain";
 import { writeAudit } from "@/domain/audit";
-import { enqueueNotification } from "@/domain/notifications";
+import {
+  enqueueBestNotification,
+  enqueueNotification,
+} from "@/domain/notifications";
+import { warsawDayRange } from "@/lib/format-date";
 import { STUDIO_POLICY, cutoffMinutes } from "@/lib/studio-policy";
 
 async function findActivePackageForEnrollment(
@@ -123,6 +127,7 @@ async function maybeCreateMakeup(
     packageId?: string | null;
     plan: PackagePlanSnapshot;
     attendanceStatus: string;
+    notify?: boolean;
   },
 ) {
   const policy = params.plan.makeup_policy;
@@ -159,17 +164,19 @@ async function maybeCreateMakeup(
     .single();
   if (error) throw error;
 
-  await enqueueNotification(db, {
-    tenantId: params.tenantId,
-    recipientPersonId: await notificationRecipient(db, params.studentPersonId),
-    channel: "telegram",
-    templateCode: "makeup.created",
-    payload: {
-      makeupCreditId: data.id,
-      validUntil: validUntil.toISOString(),
-      cabinetUrl: `${(process.env.NEXT_PUBLIC_APP_URL || "https://popularcrm.vercel.app").replace(/\/$/, "")}/cabinet/makeups`,
-    },
-  });
+  if (params.notify !== false) {
+    await enqueueNotification(db, {
+      tenantId: params.tenantId,
+      recipientPersonId: await notificationRecipient(db, params.studentPersonId),
+      channel: "telegram",
+      templateCode: "makeup.created",
+      payload: {
+        makeupCreditId: data.id,
+        validUntil: validUntil.toISOString(),
+        cabinetUrl: `${(process.env.NEXT_PUBLIC_APP_URL || "https://popularcrm.vercel.app").replace(/\/$/, "")}/cabinet/makeups`,
+      },
+    });
+  }
 
   return data;
 }
@@ -190,6 +197,8 @@ export async function bulkUpsertAttendance(
     items: BulkAttendanceItem[];
     markedBy?: string | null;
     requestId?: string;
+    /** A range absence sends one summary instead of one Telegram message per class. */
+    notifyMakeup?: boolean;
   },
 ) {
   const results = [];
@@ -327,6 +336,7 @@ export async function bulkUpsertAttendance(
           packageId: pkgForMakeup?.id ?? null,
           plan,
           attendanceStatus: item.status,
+          notify: params.notifyMakeup,
         });
         if (makeup) createdMakeups.push(makeup.id);
       } else if (!needsMakeup && existingMakeup?.status === "available") {
@@ -363,6 +373,7 @@ export async function reportCantAttendDb(
     actorPersonId: string;
     studentPersonId?: string;
     requestId?: string;
+    notifyMakeup?: boolean;
   },
 ) {
   const { data: session, error: sessionError } = await db
@@ -425,6 +436,7 @@ export async function reportCantAttendDb(
     ],
     markedBy: params.actorPersonId,
     requestId: params.requestId,
+    notifyMakeup: params.notifyMakeup,
   });
 
   return {
@@ -437,6 +449,223 @@ export async function reportCantAttendDb(
       : studentPersonId === params.actorPersonId
         ? "Готово: студия знает, что тебя не будет."
         : "Готово: студия знает, что ребёнка не будет.",
+  };
+}
+
+export type PlannedAbsenceItem = {
+  sessionId: string;
+  title: string;
+  startsAt: string;
+  studentPersonId: string;
+};
+
+export type PlannedAbsenceSkipped = PlannedAbsenceItem & {
+  reason: string;
+};
+
+type PlannedAbsenceCandidates = {
+  eligible: PlannedAbsenceItem[];
+  skipped: PlannedAbsenceSkipped[];
+};
+
+async function assertCanReportForStudent(
+  db: SupabaseClient,
+  actorPersonId: string,
+  studentPersonId: string,
+) {
+  if (studentPersonId === actorPersonId) return;
+  const { data: relation, error } = await db
+    .from("student_contacts")
+    .select("id")
+    .eq("student_person_id", studentPersonId)
+    .eq("contact_person_id", actorPersonId)
+    .in("relation_type", ["parent", "guardian"])
+    .maybeSingle();
+  if (error) throw error;
+  if (!relation) throw new Error("Нет прав отметить отсутствие за этого ребёнка");
+}
+
+async function findPlannedAbsenceCandidatesDb(
+  db: SupabaseClient,
+  params: {
+    tenantId: string;
+    actorPersonId: string;
+    studentPersonId: string;
+    startsOn: string;
+    endsOn: string;
+  },
+): Promise<PlannedAbsenceCandidates> {
+  await assertCanReportForStudent(
+    db,
+    params.actorPersonId,
+    params.studentPersonId,
+  );
+
+  const { data: enrollments, error: enrollmentError } = await db
+    .from("enrollments")
+    .select("id, group_id")
+    .eq("tenant_id", params.tenantId)
+    .eq("student_person_id", params.studentPersonId)
+    .eq("status", "active");
+  if (enrollmentError) throw enrollmentError;
+
+  const activeEnrollments = enrollments ?? [];
+  const groupIds = [...new Set(activeEnrollments.map((item) => item.group_id))];
+  if (!groupIds.length) return { eligible: [], skipped: [] };
+
+  const start = warsawDayRange(params.startsOn).start;
+  const end = warsawDayRange(params.endsOn).end;
+  const [{ data: sessions, error: sessionError }, { data: groups, error: groupError }] =
+    await Promise.all([
+      db
+        .from("sessions")
+        .select("id, group_id, starts_at, status")
+        .eq("tenant_id", params.tenantId)
+        .in("group_id", groupIds)
+        .gte("starts_at", start)
+        .lt("starts_at", end)
+        .order("starts_at", { ascending: true }),
+      db
+        .from("groups")
+        .select("id, title")
+        .eq("tenant_id", params.tenantId)
+        .in("id", groupIds),
+    ]);
+  if (sessionError) throw sessionError;
+  if (groupError) throw groupError;
+
+  const sessionRows = sessions ?? [];
+  const sessionIds = sessionRows.map((session) => session.id);
+  const enrollmentIds = activeEnrollments.map((enrollment) => enrollment.id);
+  const { data: attendance, error: attendanceError } = sessionIds.length
+    ? await db
+        .from("attendance")
+        .select("session_id, enrollment_id, status")
+        .in("session_id", sessionIds)
+        .in("enrollment_id", enrollmentIds)
+    : { data: [], error: null };
+  if (attendanceError) throw attendanceError;
+
+  const enrollmentByGroup = new Map(
+    activeEnrollments.map((enrollment) => [enrollment.group_id, enrollment]),
+  );
+  const groupTitleById = new Map((groups ?? []).map((group) => [group.id, group.title]));
+  const attendanceBySession = new Map(
+    (attendance ?? []).map((row) => [`${row.session_id}:${row.enrollment_id}`, row]),
+  );
+  const eligible: PlannedAbsenceItem[] = [];
+  const skipped: PlannedAbsenceSkipped[] = [];
+
+  for (const session of sessionRows) {
+    const enrollment = enrollmentByGroup.get(session.group_id);
+    if (!enrollment) continue;
+    const item: PlannedAbsenceItem = {
+      sessionId: session.id,
+      title: groupTitleById.get(session.group_id) ?? "Занятие",
+      startsAt: session.starts_at,
+      studentPersonId: params.studentPersonId,
+    };
+    if (session.status !== "scheduled") {
+      skipped.push({ ...item, reason: "занятие уже отменено или завершено" });
+      continue;
+    }
+    if (
+      differenceInMinutes(new Date(session.starts_at), new Date()) <
+      cutoffMinutes()
+    ) {
+      skipped.push({
+        ...item,
+        reason: `предупреждать нужно минимум за ${STUDIO_POLICY.absentNotifyCutoffHours} ч`,
+      });
+      continue;
+    }
+    const existing = attendanceBySession.get(`${session.id}:${enrollment.id}`);
+    if (existing?.status === "absent" || existing?.status === "absent_notified") {
+      skipped.push({ ...item, reason: "отсутствие уже отмечено" });
+      continue;
+    }
+    if (existing) {
+      skipped.push({ ...item, reason: "посещаемость уже отмечена" });
+      continue;
+    }
+    eligible.push(item);
+  }
+
+  return { eligible, skipped };
+}
+
+/** Preview or apply one planned absence (holiday/trip) for a student. */
+export async function plannedAbsenceDb(
+  db: SupabaseClient,
+  params: {
+    tenantId: string;
+    actorPersonId: string;
+    studentPersonId?: string;
+    startsOn: string;
+    endsOn: string;
+    action: "preview" | "apply";
+    requestId?: string;
+  },
+) {
+  const studentPersonId = params.studentPersonId ?? params.actorPersonId;
+  const candidates = await findPlannedAbsenceCandidatesDb(db, {
+    ...params,
+    studentPersonId,
+  });
+  if (params.action === "preview") {
+    return { ...candidates, studentPersonId };
+  }
+
+  let moved = 0;
+  let createdMakeups = 0;
+  const skipped = [...candidates.skipped];
+  for (const item of candidates.eligible) {
+    try {
+      const result = await reportCantAttendDb(db, {
+        tenantId: params.tenantId,
+        sessionId: item.sessionId,
+        actorPersonId: params.actorPersonId,
+        studentPersonId,
+        requestId: params.requestId,
+        notifyMakeup: false,
+      });
+      moved += 1;
+      createdMakeups += result.createdMakeups?.length ?? 0;
+    } catch (error) {
+      skipped.push({
+        ...item,
+        reason: error instanceof Error ? error.message : "не удалось перенести",
+      });
+    }
+  }
+
+  if (moved > 0 && createdMakeups > 0) {
+    try {
+      await enqueueBestNotification(db, {
+        tenantId: params.tenantId,
+        recipientPersonId: studentPersonId,
+        templateCode: "makeup.planned_absence",
+        payload: {
+          count: createdMakeups,
+          cabinetUrl: `${(process.env.NEXT_PUBLIC_APP_URL || "https://popularcrm.vercel.app").replace(/\/$/, "")}/cabinet/makeups`,
+        },
+      });
+    } catch (error) {
+      // The absence is already saved; a notification outage must not roll it back.
+      console.error("[planned-absence] notification", error);
+    }
+  }
+
+  return {
+    eligible: candidates.eligible,
+    skipped,
+    studentPersonId,
+    moved,
+    createdMakeups,
+    message:
+      moved > 0
+        ? `Перенесли занятий: ${moved}. Отработок создано: ${createdMakeups}.`
+        : "Нет занятий, которые можно перенести на выбранные даты.",
   };
 }
 

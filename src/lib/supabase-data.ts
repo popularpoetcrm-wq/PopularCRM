@@ -239,7 +239,15 @@ export async function getCabinetDashboardDb(personId: string, tenantId: string) 
     return true;
   });
   // rebind for rest of function
-  const paymentsFinal = paymentsMerged;
+  // Payer and enrollment queries are merged above; restore one chronological order
+  // so a newer online test payment cannot be hidden behind an old import row.
+  const paymentsFinal = paymentsMerged.sort((a, b) => {
+    const aRow = a as { paid_at?: string | null; created_at?: string | null };
+    const bRow = b as { paid_at?: string | null; created_at?: string | null };
+    const aTime = Date.parse(aRow.paid_at ?? aRow.created_at ?? "") || 0;
+    const bTime = Date.parse(bRow.paid_at ?? bRow.created_at ?? "") || 0;
+    return bTime - aTime;
+  });
 
   // sessions table has no title column — use group title
   const groupMap = new Map((groups ?? []).map((g) => [g.id, g]));

@@ -28,6 +28,13 @@ export type SaldeoInvoiceResult = {
   stub?: boolean;
 };
 
+export type SaldeoSetup = {
+  configured: boolean;
+  missing: string[];
+  apiUrl: string;
+  environment: "test" | "production";
+};
+
 /**
  * SaldeoSMART REST API-XML client (spec 5.0.1 / API ≥ 3.0 for 2026).
  *
@@ -129,16 +136,42 @@ function getSaldeoBaseUrl(): string {
   return "https://saldeo.brainshare.pl";
 }
 
+/**
+ * Safe-to-display integration readiness. Values are deliberately never exposed,
+ * only the labels of missing configuration fields.
+ */
+export function getSaldeoSetup(): SaldeoSetup {
+  const env = getEnv();
+  const missing = [
+    !env.SALDEO_USERNAME ? "логин Saldeo" : null,
+    !env.SALDEO_API_TOKEN ? "API-токен" : null,
+    !env.SALDEO_COMPANY_PROGRAM_ID ? "ID программы компании" : null,
+  ].filter((item): item is string => Boolean(item));
+  const apiUrl = getSaldeoBaseUrl();
+
+  return {
+    configured: missing.length === 0,
+    missing,
+    apiUrl,
+    environment: apiUrl.includes("saldeo-test.brainshare.pl")
+      ? "test"
+      : "production",
+  };
+}
+
 async function saldeoPost(path: string, extraParams: Record<string, string>, xml: string) {
   const env = getEnv();
-  if (!env.SALDEO_USERNAME || !env.SALDEO_API_TOKEN) {
-    throw new Error("Saldeo credentials missing (SALDEO_USERNAME / SALDEO_API_TOKEN)");
+  const setup = getSaldeoSetup();
+  if (!setup.configured) {
+    throw new Error(`Saldeo не настроен: ${setup.missing.join(", ")}`);
   }
+  const username = env.SALDEO_USERNAME!;
+  const apiToken = env.SALDEO_API_TOKEN!;
 
   const reqId = `crm-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const command = await encodeCommand(xml);
   const params: Record<string, string> = {
-    username: env.SALDEO_USERNAME,
+    username,
     req_id: reqId,
     command,
     ...extraParams,
@@ -147,7 +180,7 @@ async function saldeoPost(path: string, extraParams: Record<string, string>, xml
     params.company_program_id = env.SALDEO_COMPANY_PROGRAM_ID;
   }
 
-  const reqSig = buildSaldeoReqSig(params, env.SALDEO_API_TOKEN);
+  const reqSig = buildSaldeoReqSig(params, apiToken);
   params.req_sig = reqSig;
 
   const body = new URLSearchParams(params);
@@ -187,11 +220,9 @@ function pickXml(tag: string, xml: string): string | undefined {
 export async function createSaldeoInvoice(
   input: SaldeoInvoiceInput,
 ): Promise<SaldeoInvoiceResult> {
-  const env = getEnv();
-  if (!env.SALDEO_USERNAME || !env.SALDEO_API_TOKEN) {
-    throw new Error(
-      "Saldeo не настроен: нужны SALDEO_USERNAME и SALDEO_API_TOKEN",
-    );
+  const setup = getSaldeoSetup();
+  if (!setup.configured) {
+    throw new Error(`Saldeo не настроен: ${setup.missing.join(", ")}`);
   }
 
   const xml = buildInvoiceAddXml(input);

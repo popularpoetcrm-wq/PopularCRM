@@ -4,7 +4,10 @@ import { jsonError, jsonOk } from "@/lib/api";
 import { hasSupabase } from "@/lib/env";
 import { getDemoState } from "@/lib/demo-store";
 
-const retrySchema = z.object({ invoiceId: z.string().min(1) });
+const actionSchema = z.object({
+  invoiceId: z.string().min(1),
+  action: z.enum(["send", "refresh"]).default("send"),
+});
 
 export async function GET() {
   const user = await getSessionUser();
@@ -28,7 +31,7 @@ export async function GET() {
 export async function POST(req: Request) {
   const user = await getSessionUser();
   if (!user || !isAdmin(user.roles)) return jsonError("Forbidden", 403);
-  const parsed = retrySchema.safeParse(await req.json().catch(() => ({})));
+  const parsed = actionSchema.safeParse(await req.json().catch(() => ({})));
   if (!parsed.success) return jsonError("invoiceId required");
   if (!hasSupabase() || user.mode === "demo") {
     return jsonError("Повторная отправка доступна только с Saldeo", 400);
@@ -36,10 +39,27 @@ export async function POST(req: Request) {
 
   try {
     const { getAdminClient } = await import("@/lib/supabase/admin");
-    const { syncInvoiceToSaldeo } = await import("@/domain/invoices");
-    return jsonOk(
-      await syncInvoiceToSaldeo(getAdminClient(), parsed.data.invoiceId),
+    const { getSaldeoSetup } = await import("@/integrations/saldeo");
+    const setup = getSaldeoSetup();
+    if (!setup.configured) {
+      return jsonError("Saldeo пока не настроен", 409, { saldeo: setup });
+    }
+    const { syncInvoiceToSaldeo, refreshInvoiceFromSaldeo } = await import(
+      "@/domain/invoices"
     );
+    const invoice =
+      parsed.data.action === "refresh"
+        ? await refreshInvoiceFromSaldeo(
+            getAdminClient(),
+            parsed.data.invoiceId,
+            user.tenantId,
+          )
+        : await syncInvoiceToSaldeo(
+            getAdminClient(),
+            parsed.data.invoiceId,
+            user.tenantId,
+          );
+    return jsonOk(invoice);
   } catch (e) {
     return jsonError(e instanceof Error ? e.message : "fail", 400);
   }

@@ -48,7 +48,12 @@ export default function ProfilePage() {
   const [children, setChildren] = useState<Child[]>([]);
   const [parents, setParents] = useState<Person[]>([]);
   const [groups, setGroups] = useState<
-    Array<{ title: string; subtitle?: string; schedule_label?: string | null }>
+    Array<{
+      id: string;
+      title: string;
+      subtitle?: string;
+      schedule_label?: string | null;
+    }>
   >([]);
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
@@ -216,29 +221,38 @@ export default function ProfilePage() {
           </span>
         </label>
 
-        {groups.length ? (
-          <div>
-            <p className="text-xs uppercase tracking-wide text-fog">Группы</p>
-            <ul className="mt-2 space-y-2">
-              {groups.map((g) => (
-                <li key={g.title}>
-                  <p className="font-semibold">{g.title}</p>
-                  <p className="text-xs text-fog">
-                    {g.subtitle && g.subtitle !== g.title
-                      ? g.subtitle
-                      : g.schedule_label || "—"}
-                  </p>
-                </li>
-              ))}
-            </ul>
-          </div>
-        ) : null}
-
         {message ? <p className="text-sm text-stage-deep">{message}</p> : null}
         <button className="btn btn-primary" type="submit" disabled={busy}>
           {busy ? "…" : "Сохранить"}
         </button>
       </form>
+      ) : null}
+
+      {!loading && groups.length ? (
+        <section className="glass max-w-xl p-6">
+          <p className="text-xs font-bold uppercase tracking-[0.14em] text-fog">Мои группы</p>
+          <p className="mt-2 text-sm text-fog">
+            Открой группу, чтобы увидеть только её расписание и перенести нужные занятия.
+          </p>
+          <ul className="mt-4 space-y-2">
+            {groups.map((group) => (
+              <li key={group.id}>
+                <Link
+                  href={`/cabinet/schedule?group=${encodeURIComponent(group.id)}`}
+                  className="card-quiet block p-4 transition hover:bg-white/10"
+                >
+                  <p className="font-semibold">{group.title}</p>
+                  <p className="mt-1 text-sm text-fog">
+                    {group.subtitle && group.subtitle !== group.title
+                      ? group.subtitle
+                      : group.schedule_label || "Расписание"}
+                  </p>
+                  <p className="mt-3 text-sm text-stage-deep">Открыть группу →</p>
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </section>
       ) : null}
 
       {!loading && parents.length ? (

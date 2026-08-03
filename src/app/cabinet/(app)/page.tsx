@@ -13,7 +13,14 @@ type Dash = {
   packages: Array<{ credits_available: number; credits_total: number; expires_at: string }>;
   makeups: Array<{ status: string }>;
   payments: Array<{ status: string; brand_id?: string }>;
-  schedule: Array<{ id: string; title: string; starts_at: string; status: string; myStatus?: string | null }>;
+  schedule: Array<{
+    id: string;
+    group_id?: string;
+    title: string;
+    starts_at: string;
+    status: string;
+    myStatus?: string | null;
+  }>;
   children?: Array<{ id: string; full_name: string }>;
   groups?: Array<{
     id: string;
@@ -37,10 +44,21 @@ type Dash = {
   } | null;
 };
 
+type Recommendation = {
+  id: string;
+  title: string;
+  starts_at: string;
+  venue: string;
+  remaining: number;
+  reason: string;
+  href: string;
+};
+
 export default function CabinetHome() {
   const [data, setData] = useState<Dash | null>(null);
   const [msg, setMsg] = useState("");
   const [busy, setBusy] = useState(false);
+  const [recommendations, setRecommendations] = useState<Recommendation[]>([]);
   const [now] = useState(() => Date.now());
 
   async function load() {
@@ -53,13 +71,26 @@ export default function CabinetHome() {
     void load();
   }, []);
 
+  useEffect(() => {
+    async function loadRecommendations() {
+      try {
+        const res = await fetch("/api/v1/me/recommendations");
+        const json = await res.json();
+        if (json.ok) setRecommendations(json.data.recommendations ?? []);
+      } catch {
+        // This is a pleasant extra; the core cabinet must remain quiet if Tickets is offline.
+      }
+    }
+    void loadRecommendations();
+  }, []);
+
   const pkg = data?.packages?.[0];
   const makeups = (data?.makeups ?? []).filter((m) => m.status === "available").length;
   const debt = (data?.payments ?? []).filter((p) =>
     ["pending", "partial"].includes(p.status),
   ).length;
   const next = [...(data?.schedule ?? [])]
-    .filter((s) => s.status === "scheduled")
+    .filter((s) => s.status === "scheduled" && new Date(s.starts_at).getTime() >= now)
     .sort((a, b) => a.starts_at.localeCompare(b.starts_at))[0];
   const skipped =
     next &&
@@ -72,7 +103,7 @@ export default function CabinetHome() {
 
   async function cantAttend() {
     if (!next) return;
-    if (!confirm(`Не придёшь на «${next.title}»?`)) return;
+    if (!confirm(`Перенести «${next.title}»? После этого появится отработка, на которую можно выбрать новую дату.`)) return;
     setBusy(true);
     setMsg("");
     const res = await fetch("/api/v1/me/cant-attend", {
@@ -104,8 +135,8 @@ export default function CabinetHome() {
         </h1>
         <p className="mt-2 text-fog">
           {(data.children?.length ?? 0) > 0
-            ? "Кабинет родителя: расписание → не придёт → отработка → оплата → фактура."
-            : `Цикл: занятия → «не приду» (≥${STUDIO_POLICY.absentNotifyCutoffHours} ч) → отработка → оплата абонемента → фактура.`}
+            ? "Кабинет родителя: расписание → перенос занятия → отработка → оплата → фактура."
+            : `Цикл: занятия → перенос заранее (≥${STUDIO_POLICY.absentNotifyCutoffHours} ч) → отработка → оплата абонемента → фактура.`}
         </p>
       </section>
 
@@ -127,7 +158,11 @@ export default function CabinetHome() {
           <h2 className="font-display text-2xl">Мои группы</h2>
           <ul className="space-y-2">
             {data.groups.map((g) => (
-              <li key={g.id} className="glass p-4">
+              <li key={g.id}>
+                <Link
+                  href={`/cabinet/schedule?group=${encodeURIComponent(g.id)}`}
+                  className="glass block p-4 transition hover:bg-white/10"
+                >
                 <p className="font-semibold">{g.title}</p>
                 <p className="mt-1 text-sm text-fog">
                   {g.subtitle && g.subtitle !== g.title
@@ -135,9 +170,71 @@ export default function CabinetHome() {
                     : [g.direction_label, g.schedule_label].filter(Boolean).join(" · ") ||
                       "Расписание уточняется"}
                 </p>
+                {(() => {
+                  const groupNext = [...(data.schedule ?? [])]
+                    .filter(
+                      (session) =>
+                        session.group_id === g.id &&
+                        session.status === "scheduled" &&
+                        new Date(session.starts_at).getTime() >= now,
+                    )
+                    .sort((a, b) => a.starts_at.localeCompare(b.starts_at))[0];
+                  return groupNext ? (
+                    <p className="mt-3 text-sm text-stage-deep">
+                      Следующее: {format(new Date(groupNext.starts_at), "d MMMM · HH:mm", {
+                        locale: ru,
+                      })} →
+                    </p>
+                  ) : (
+                    <p className="mt-3 text-sm text-stage-deep">Открыть расписание →</p>
+                  );
+                })()}
+                </Link>
               </li>
             ))}
           </ul>
+        </section>
+      ) : null}
+
+      {recommendations.length ? (
+        <section className="glass p-5 sm:p-6">
+          <p className="text-xs font-bold uppercase tracking-[0.14em] text-fog">
+            Можно попробовать ещё
+          </p>
+          <h2 className="mt-2 font-display text-2xl">Новый навык — без обязательств</h2>
+          <p className="mt-2 max-w-2xl text-sm text-fog">
+            Это не обязательное предложение: мы показываем только ближайшие пробные с живыми местами из PopularTickets.
+          </p>
+          <div className="mt-4 grid gap-3">
+            {recommendations.map((item) => (
+              <article
+                key={item.id}
+                className="rounded-2xl border border-white/15 bg-white/5 p-4"
+              >
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="min-w-0">
+                    <p className="font-semibold">{item.title}</p>
+                    <p className="mt-1 text-sm text-fog">
+                      {format(new Date(item.starts_at), "EEEE, d MMMM · HH:mm", {
+                        locale: ru,
+                      })}
+                      {item.venue ? ` · ${item.venue}` : ""}
+                      {` · мест: ${item.remaining}`}
+                    </p>
+                    <p className="mt-2 text-sm text-fog">{item.reason}</p>
+                  </div>
+                  <a
+                    href={item.href}
+                    className="btn btn-stage w-full shrink-0 sm:w-auto"
+                    target={item.href.startsWith("http") ? "_blank" : undefined}
+                    rel={item.href.startsWith("http") ? "noreferrer" : undefined}
+                  >
+                    Смотреть пробное →
+                  </a>
+                </div>
+              </article>
+            ))}
+          </div>
         </section>
       ) : null}
 
@@ -166,7 +263,7 @@ export default function CabinetHome() {
                 disabled={!canSkip || busy}
                 onClick={cantAttend}
               >
-                {busy ? "…" : canSkip ? "Не приду" : "Уже поздно отменить"}
+                {busy ? "Сохраняем…" : canSkip ? "Перенести занятие" : "Уже поздно переносить"}
               </button>
             )}
             <Link

@@ -312,7 +312,7 @@ export async function invitePersonDb(
     await resend.emails.send({
       from: env.EMAIL_FROM!,
       to: target.email,
-      subject: "Zaproszenie do kabinetu — Popular",
+      subject: "Zaproszenie do kabinetu — Popular Poet",
       text: `Cześć ${target.full_name}!\n\nTwój link: ${magicUrl}\nLub zaloguj się kodem na ${appBaseUrl()}/login\n`,
     });
     emailed = true;

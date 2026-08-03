@@ -54,10 +54,17 @@ async function main() {
 
   let r = await req("/api/v1/auth/login", {
     method: "POST",
-    body: JSON.stringify({ email: "admin@studio.local" }),
+    body: JSON.stringify({ email: "admin@studio.local", delivery: "email" }),
   });
   if (!r.json.ok) fail(`login admin: ${r.json.error}`);
   let cookie = pickCookie(r.setCookie);
+  if (
+    r.json.data.mode === "magic" &&
+    Array.isArray(r.json.data.delivered) &&
+    r.json.data.delivered.some((channel) => channel !== "email")
+  ) {
+    fail("login admin: requested email delivery also sent a different channel");
+  }
   steps.push(`✓ login admin (${r.json.data.mode})`);
 
   if (r.json.data.mode === "magic") {
@@ -89,6 +96,48 @@ async function main() {
       if (!r.json.ok) fail(`${label}: ${r.json.error}`);
       steps.push(`✓ ${label}`);
     }
+
+    // Client-side safe path: student previews a trip; no attendance is changed.
+    r = await req("/api/v1/auth/login", {
+      method: "POST",
+      body: JSON.stringify({ email: "anna@example.com", delivery: "email" }),
+    });
+    if (!r.json.ok) fail(`login anna: ${r.json.error}`);
+    const annaCode =
+      r.json.data.debugCode ?? (await localMagicCode("anna@example.com"));
+    if (!annaCode) fail("Supabase smoke could not resolve Anna's local test code");
+    r = await req("/api/v1/auth/verify", {
+      method: "POST",
+      body: JSON.stringify({ email: "anna@example.com", code: annaCode }),
+    });
+    if (!r.json.ok) fail(`verify anna: ${r.json.error}`);
+    cookie = pickCookie(r.setCookie);
+    r = await req("/api/v1/me/dashboard", { cookie });
+    if (!r.json.ok) fail(`anna dashboard: ${r.json.error}`);
+    const nextSession = (r.json.data.schedule ?? []).find(
+      (session) =>
+        new Date(session.starts_at).getTime() - Date.now() > 6 * 60 * 60 * 1000,
+    );
+    if (nextSession) {
+      const ymd = new Intl.DateTimeFormat("en-CA", {
+        timeZone: "Europe/Warsaw",
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+      }).format(new Date(nextSession.starts_at));
+      r = await req("/api/v1/me/planned-absence", {
+        method: "POST",
+        cookie,
+        body: JSON.stringify({ action: "preview", startsOn: ymd, endsOn: ymd }),
+      });
+      if (!r.json.ok) fail(`planned absence preview: ${r.json.error}`);
+      steps.push(`✓ planned absence preview (${r.json.data.eligible?.length ?? 0} classes)`);
+    } else {
+      steps.push("· planned absence preview skipped: no future class");
+    }
+    r = await req("/api/v1/me/recommendations", { cookie });
+    if (!r.json.ok) fail(`recommendations: ${r.json.error}`);
+    steps.push("✓ client recommendations");
     console.log("SUPABASE SMOKE OK\n" + steps.join("\n"));
     return;
   }

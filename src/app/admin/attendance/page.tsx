@@ -178,8 +178,8 @@ function AttendanceInner() {
         </p>
       </div>
 
-      <div className="flex flex-wrap items-end gap-3">
-        <label className="block text-sm font-semibold">
+      <div className="grid gap-3 sm:flex sm:flex-wrap sm:items-end">
+        <label className="block w-full text-sm font-semibold sm:w-auto">
           Дата
           <input
             type="date"
@@ -188,17 +188,19 @@ function AttendanceInner() {
             onChange={(e) => setDate(e.target.value)}
           />
         </label>
-        <button type="button" className="btn btn-ghost text-sm" onClick={() => setDate(today)}>
-          Сегодня
-        </button>
-        <button
-          type="button"
-          className="btn btn-ghost text-sm"
-          onClick={() => setDate(yesterday)}
-        >
-          Вчера
-        </button>
-        <label className="block min-w-[16rem] flex-1 text-sm font-semibold">
+        <div className="grid grid-cols-2 gap-2 sm:contents">
+          <button type="button" className="btn btn-ghost text-sm" onClick={() => setDate(today)}>
+            Сегодня
+          </button>
+          <button
+            type="button"
+            className="btn btn-ghost text-sm"
+            onClick={() => setDate(yesterday)}
+          >
+            Вчера
+          </button>
+        </div>
+        <label className="block w-full text-sm font-semibold sm:min-w-[16rem] sm:flex-1">
           Занятие
           <select
             className="input mt-2"

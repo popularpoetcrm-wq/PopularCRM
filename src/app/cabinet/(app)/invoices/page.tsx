@@ -82,8 +82,8 @@ export default function InvoicesPage() {
         <h1 className="font-display text-3xl">Фактуры</h1>
         <p className="text-fog">
           Фактуру можно запросить по оплаченному или открытому начислению. Пока
-          Saldeo без API-токена документ останется в очереди / с ошибкой — без
-          фейкового «готово».
+          Saldeo без API-токена документ останется в очереди — номер и PDF
+          появятся только после выпуска, без фейкового «готово».
         </p>
       </div>
 
@@ -134,7 +134,9 @@ export default function InvoicesPage() {
             {invoices.map((i) => (
               <div key={i.id} className="card-quiet flex items-center justify-between p-5">
                 <div>
-                  <p className="font-semibold">{i.invoice_number ?? i.id}</p>
+                  <p className="font-semibold">
+                    {i.invoice_number ?? "Запрос на фактуру"}
+                  </p>
                   <p className="text-sm text-fog">
                     {INVOICE_STATUS[i.status] ?? i.status}
                   </p>

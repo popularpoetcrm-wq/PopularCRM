@@ -238,18 +238,55 @@ export async function GET(req: Request) {
   }
 
   if (job === "invoice_saldeo_sync") {
+    const { getSaldeoSetup } = await import("@/integrations/saldeo");
+    const setup = getSaldeoSetup();
+    if (!setup.configured) {
+      return jsonOk({ job, skipped: "Saldeo не настроен", pending: 0 });
+    }
     const { data: pending } = await db
       .from("invoices")
-      .select("id")
+      .select("id, tenant_id")
       .eq("status", "queued")
       .limit(20);
     const { syncInvoiceToSaldeo } = await import("@/domain/invoices");
     let synced = 0;
+    let failed = 0;
     for (const inv of pending ?? []) {
-      await syncInvoiceToSaldeo(db, inv.id);
-      synced += 1;
+      try {
+        await syncInvoiceToSaldeo(db, inv.id, inv.tenant_id);
+        synced += 1;
+      } catch {
+        failed += 1;
+      }
     }
-    return jsonOk({ job, synced });
+    return jsonOk({ job, synced, failed });
+  }
+
+  if (job === "invoice_saldeo_refresh") {
+    const { getSaldeoSetup } = await import("@/integrations/saldeo");
+    const setup = getSaldeoSetup();
+    if (!setup.configured) {
+      return jsonOk({ job, skipped: "Saldeo не настроен", pending: 0 });
+    }
+    const { data: pending } = await db
+      .from("invoices")
+      .select("id, tenant_id")
+      .eq("status", "sent_to_saldeo")
+      .limit(20);
+    const { refreshInvoiceFromSaldeo } = await import("@/domain/invoices");
+    let issued = 0;
+    let waiting = 0;
+    let failed = 0;
+    for (const inv of pending ?? []) {
+      try {
+        const result = await refreshInvoiceFromSaldeo(db, inv.id, inv.tenant_id);
+        if (result.status === "issued") issued += 1;
+        else waiting += 1;
+      } catch {
+        failed += 1;
+      }
+    }
+    return jsonOk({ job, issued, waiting, failed });
   }
 
   if (job === "generate_sessions") {
@@ -272,6 +309,7 @@ export async function GET(req: Request) {
       "queue_attendance_reminders",
       "dispatch_notifications",
       "invoice_saldeo_sync",
+      "invoice_saldeo_refresh",
       "generate_sessions",
     ] as const;
     const results: Record<string, unknown> = {};

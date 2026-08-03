@@ -97,7 +97,7 @@ export default function JoinClient() {
   return (
     <main className="mx-auto min-h-screen max-w-lg px-4 py-10">
       <Link href="/" className="font-display text-2xl">
-        Popular
+        Popular Poet
       </Link>
       <section className="glass mt-6 space-y-4 p-6">
         <h1 className="font-display text-3xl">Это я</h1>

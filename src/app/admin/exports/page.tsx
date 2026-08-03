@@ -14,11 +14,11 @@ export default function AdminExportsPage() {
     <section className="space-y-4">
       <h1 className="font-display text-3xl">Экспорты</h1>
       <p className="text-fog">Фильтр по текущей вкладке бренда (где применимо).</p>
-      <div className="flex flex-wrap gap-3">
+      <div className="grid gap-3 sm:flex sm:flex-wrap">
         {items.map((i) => (
           <Link
             key={i.type}
-            className="btn btn-ghost"
+            className="btn btn-ghost w-full sm:w-auto"
             href={`/api/v1/reports/export?type=${i.type}`}
           >
             {i.label}

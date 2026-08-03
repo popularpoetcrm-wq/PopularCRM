@@ -16,6 +16,8 @@ import { applySessionCookies, clearSessionCookies } from "@/lib/session";
 
 const bodySchema = z.object({
   email: z.string().email(),
+  /** If both are linked, the client must explicitly choose a delivery channel. */
+  delivery: z.enum(["email", "telegram"]).optional(),
 });
 
 export async function POST(req: Request) {
@@ -60,12 +62,60 @@ export async function POST(req: Request) {
       return jsonError("Нет аккаунта с этим email. Нужен инвайт от студии.", 404);
     }
 
-    const code = await issueMagicCode(email, person.tenant_id);
     const roles = await getPersonRoles(person.id);
+    const db = getAdminClient();
+    const { data: tg } = await db
+      .from("telegram_identities")
+      .select("chat_id")
+      .eq("person_id", person.id)
+      .maybeSingle();
+
+    const availableChannels: Array<"email" | "telegram"> = [];
+    if (env.RESEND_API_KEY) availableChannels.push("email");
+    if (tg?.chat_id && env.TELEGRAM_BOT_TOKEN) availableChannels.push("telegram");
+
+    if (!parsed.data.delivery && availableChannels.length > 1) {
+      return jsonOk({
+        mode: "choose_delivery",
+        message: "Куда прислать код?",
+        availableChannels,
+        personId: person.id,
+        roles,
+        onboarding_status: person.onboarding_status ?? "complete",
+      });
+    }
+
+    if (
+      parsed.data.delivery &&
+      !availableChannels.includes(parsed.data.delivery)
+    ) {
+      return jsonError("Этот способ входа сейчас недоступен", 400);
+    }
+
+    const delivery = parsed.data.delivery ?? availableChannels[0];
+    const allowDebugOtp =
+      process.env.NODE_ENV !== "production" &&
+      process.env.ALLOW_DEBUG_OTP === "true";
+    if (!delivery) {
+      const code = await issueMagicCode(email, person.tenant_id);
+      return jsonOk({
+        mode: "magic",
+        message:
+          "Не удалось отправить код: не настроены почта и Telegram. Попроси администратора помочь.",
+        delivered: [],
+        availableChannels,
+        personId: person.id,
+        roles,
+        onboarding_status: person.onboarding_status ?? "complete",
+        debugCode: allowDebugOtp ? code : undefined,
+      });
+    }
+
+    const code = await issueMagicCode(email, person.tenant_id);
 
     const delivered: Array<"email" | "telegram"> = [];
 
-    if (env.RESEND_API_KEY) {
+    if (delivery === "email") {
       try {
         const { Resend } = await import("resend");
         const resend = new Resend(env.RESEND_API_KEY);
@@ -81,13 +131,7 @@ export async function POST(req: Request) {
       }
     }
 
-    const db = getAdminClient();
-    const { data: tg } = await db
-      .from("telegram_identities")
-      .select("chat_id")
-      .eq("person_id", person.id)
-      .maybeSingle();
-    if (tg?.chat_id && env.TELEGRAM_BOT_TOKEN) {
+    if (delivery === "telegram" && tg?.chat_id && env.TELEGRAM_BOT_TOKEN) {
       try {
         await sendTelegramMessage({
           chatId: tg.chat_id as number,
@@ -101,27 +145,28 @@ export async function POST(req: Request) {
       }
     }
 
-    const channels =
-      delivered.length === 0
-        ? null
-        : delivered.includes("email") && delivered.includes("telegram")
-          ? "email и Telegram"
-          : delivered.includes("email")
-            ? "email"
-            : "Telegram";
+    const channels = delivered.includes("email") ? "почту" : "Telegram";
 
-    const message = channels
+    const message = delivered.length
       ? `Код из 6 цифр отправлен в ${channels}. Введи его ниже.`
-      : "Не удалось отправить код (нет Resend и Telegram). Попроси админа настроить почту или привяжи бота.";
+      : `Не удалось отправить код в ${delivery === "email" ? "почту" : "Telegram"}. Выбери другой способ или попробуй позже.`;
 
-    const allowDebugOtp =
-      process.env.NODE_ENV !== "production" &&
-      process.env.ALLOW_DEBUG_OTP === "true";
+    if (!delivered.length && availableChannels.length > 1) {
+      return jsonOk({
+        mode: "choose_delivery",
+        message,
+        availableChannels: availableChannels.filter((channel) => channel !== delivery),
+        personId: person.id,
+        roles,
+        onboarding_status: person.onboarding_status ?? "complete",
+      });
+    }
 
     return jsonOk({
       mode: "magic",
       message,
       delivered,
+      availableChannels,
       personId: person.id,
       roles,
       onboarding_status: person.onboarding_status ?? "complete",

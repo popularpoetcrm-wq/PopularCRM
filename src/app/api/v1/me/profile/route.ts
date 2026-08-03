@@ -23,6 +23,16 @@ export async function GET() {
 
   const person = getDemoState().persons.find((p) => p.id === user.personId);
   if (!person) return jsonError("Not found", 404);
+  const children = getChildrenForParent(user.personId);
+  const scopeIds = [user.personId, ...children.map((child) => child.id)];
+  const groups = getDemoState().groups.filter((group) =>
+    getDemoState().enrollments.some(
+      (enrollment) =>
+        enrollment.group_id === group.id &&
+        enrollment.status === "active" &&
+        scopeIds.includes(enrollment.student_person_id),
+    ),
+  );
   return jsonOk({
     person: {
       ...person,
@@ -30,9 +40,9 @@ export async function GET() {
       telegram_linked: Boolean(person.telegram_linked),
       telegram_username: null,
     },
-    children: getChildrenForParent(user.personId),
+    children,
     parents: [],
-    groups: [],
+    groups,
     packages: [],
     schedule: [],
   });

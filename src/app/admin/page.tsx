@@ -175,8 +175,8 @@ export default function AdminHome() {
         <p className="mt-2 text-fog">
           Занятия, ожидаемый состав, оплаты и задачи на выбранный день.
         </p>
-        <div className="mt-4 flex flex-wrap items-end gap-3">
-          <label className="text-sm font-semibold">
+        <div className="mt-4 grid gap-2 sm:flex sm:flex-wrap sm:items-end sm:gap-3">
+          <label className="text-sm font-semibold sm:min-w-44">
             Дата
             <input
               type="date"
@@ -185,54 +185,59 @@ export default function AdminHome() {
               onChange={(e) => setDate(e.target.value)}
             />
           </label>
-          <button
-            type="button"
-            className="btn btn-ghost text-sm"
-            onClick={() => setDate(today)}
+          <div className="grid grid-cols-2 gap-2 sm:contents">
+            <button
+              type="button"
+              className="btn btn-ghost text-sm sm:w-auto"
+              onClick={() => setDate(today)}
+            >
+              Сегодня
+            </button>
+            <button
+              type="button"
+              className="btn btn-ghost text-sm sm:w-auto"
+              onClick={() => setDate(yesterday)}
+            >
+              Вчера
+            </button>
+          </div>
+          <Link
+            href={`/admin/attendance?date=${date}`}
+            className="btn btn-stage w-full text-sm sm:w-auto"
           >
-            Сегодня
-          </button>
-          <button
-            type="button"
-            className="btn btn-ghost text-sm"
-            onClick={() => setDate(yesterday)}
-          >
-            Вчера
-          </button>
-          <Link href={`/admin/attendance?date=${date}`} className="btn btn-stage text-sm">
             Отметить посещаемость
           </Link>
-          <Link href="/admin/sessions" className="btn btn-ghost text-sm">
+          <Link href="/admin/sessions" className="btn btn-ghost w-full text-sm sm:w-auto">
             Журнал занятий
           </Link>
           <button
             type="button"
-            className="btn btn-stage text-sm"
+            className="btn btn-stage w-full text-sm sm:w-auto"
             disabled={busy || mode === "demo"}
             onClick={generateSessions}
           >
             Сгенерировать 8 недель
           </button>
         </div>
-        <div className="mt-3 flex flex-wrap gap-2">
+        <div className="mt-3 grid gap-2 sm:flex sm:flex-wrap">
           {mode === "demo" ? (
             <>
-              <button className="btn btn-ghost text-sm" disabled={busy} onClick={seed}>
+              <button className="btn btn-ghost w-full text-sm sm:w-auto" disabled={busy} onClick={seed}>
                 Seed дня
               </button>
-              <button className="btn btn-ghost text-sm" disabled={busy} onClick={tick}>
+              <button className="btn btn-ghost w-full text-sm sm:w-auto" disabled={busy} onClick={tick}>
                 Tick jobs
               </button>
             </>
           ) : null}
           <button
-            className="btn btn-ghost text-sm"
+            className="btn btn-ghost w-full text-sm sm:w-auto"
             disabled={busy}
             onClick={remindDebtors}
           >
             Напомнить должникам
           </button>
-          <a href="/api/v1/reports/export?type=week" className="btn btn-ghost text-sm">
+          <a href="/api/v1/reports/export?type=week" className="btn btn-ghost w-full text-sm sm:w-auto">
             CSV недели
           </a>
         </div>

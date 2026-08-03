@@ -248,17 +248,20 @@ export default function AdminGroupsPage() {
         </p>
       </div>
 
-      <div className="flex flex-wrap items-center gap-3">
-        <form onSubmit={createGroup} className="glass flex flex-1 flex-wrap gap-3 p-4">
+      <div className="grid gap-3 sm:flex sm:flex-wrap sm:items-center">
+        <form
+          onSubmit={createGroup}
+          className="glass grid w-full gap-3 p-4 sm:flex sm:flex-1 sm:flex-wrap"
+        >
           <input
-            className="input max-w-md flex-1"
+            className="input max-w-md sm:flex-1"
             placeholder="Название, напр. Воскресная школа"
             value={title}
             onChange={(e) => setTitle(e.target.value)}
             required
           />
           <select
-            className="input max-w-xs"
+            className="input max-w-none sm:max-w-xs"
             value={direction}
             onChange={(e) => setDirection(e.target.value)}
           >
@@ -270,11 +273,11 @@ export default function AdminGroupsPage() {
             <option value="playback">playback</option>
             <option value="other">другое</option>
           </select>
-          <button className="btn btn-primary" type="submit">
+          <button className="btn btn-primary w-full sm:w-auto" type="submit">
             Создать группу
           </button>
         </form>
-        <label className="glass flex items-center gap-2 px-4 py-3 text-sm">
+        <label className="glass flex w-full items-center gap-2 px-4 py-3 text-sm sm:w-auto">
           <input
             type="checkbox"
             checked={showInactive}
@@ -286,7 +289,7 @@ export default function AdminGroupsPage() {
           />
           Неактивные группы
         </label>
-        <label className="glass flex items-center gap-2 px-4 py-3 text-sm">
+        <label className="glass flex w-full items-center gap-2 px-4 py-3 text-sm sm:w-auto">
           <input
             type="checkbox"
             checked={showEndedMembers}

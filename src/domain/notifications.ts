@@ -114,6 +114,8 @@ export function renderTemplate(
       return `В пакете осталось только ${payload.remaining ?? 1} занятие.`;
     case "makeup.created":
       return `Создана отработка. Действует до: ${payload.validUntil ?? "—"}.\nЗабронируй группу или пробное: ${payload.cabinetUrl ?? "https://popularcrm.vercel.app/cabinet/makeups"}`;
+    case "makeup.planned_absence":
+      return `Отсутствие отмечено. Создано отработок: ${payload.count ?? 0}.\nВыбери новую дату: ${payload.cabinetUrl ?? "https://popularcrm.vercel.app/cabinet/makeups"}`;
     case "makeup.expiring":
       return `Отработка скоро сгорит (${payload.validUntil ?? "—"}).\n${payload.cabinetUrl ?? "https://popularcrm.vercel.app/cabinet/makeups"}`;
     case "attendance.remind_cutoff":
