@@ -161,8 +161,8 @@ export default function AdminOffersPage() {
           <p className="mt-2 max-w-2xl text-fog">
             Занятия групп + ивенты и пробные с{" "}
             <strong className="text-ink">populartickets.pl</strong> (то же, что
-            светятся на popularpoet.pl). Страницу пробного создаём в Tickets —
-            здесь обзор и заглушка.
+            светятся на popularpoet.pl). Пробные — отдельно от основных групп:
+            страницу создаём в Tickets.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -182,13 +182,6 @@ export default function AdminOffersPage() {
           >
             Poet
           </a>
-          <button
-            type="button"
-            className="btn btn-stage"
-            onClick={() => openStub(`день ${selectedYmd}`)}
-          >
-            Сделать страницу пробного
-          </button>
         </div>
       </div>
 
@@ -320,7 +313,8 @@ export default function AdminOffersPage() {
 
           {!dayEvents.length ? (
             <p className="text-fog">
-              Пусто — можно сделать страницу пробного на этот день.
+              В этот день нет занятий и листингов — пробное можно создать в
+              Tickets отдельно от групп.
             </p>
           ) : (
             <ul className="space-y-3">
@@ -364,31 +358,23 @@ export default function AdminOffersPage() {
                       </a>
                     ) : null}
                   </div>
-                  {e.kind === "session" ? (
-                    <button
-                      type="button"
-                      className="btn btn-stage mt-3 text-xs"
-                      onClick={() =>
-                        openStub(
-                          `занятие «${e.title}» ${warsawTime(e.starts_at)} ${selectedYmd}`,
-                        )
-                      }
-                    >
-                      Сделать страницу пробного
-                    </button>
-                  ) : null}
                 </li>
               ))}
             </ul>
           )}
 
-          <button
-            type="button"
-            className="btn btn-primary w-full"
-            onClick={() => openStub(`день ${selectedYmd}`)}
-          >
-            Сделать страницу пробного на этот день
-          </button>
+          <div className="space-y-2 border-t border-white/10 pt-4">
+            <p className="text-xs text-fog">
+              Пробное — отдельный листинг в Tickets, не страница занятия группы.
+            </p>
+            <button
+              type="button"
+              className="btn btn-primary w-full"
+              onClick={() => openStub(`день ${selectedYmd}`)}
+            >
+              Создать пробное на этот день (Tickets)
+            </button>
+          </div>
         </div>
       </div>
 
