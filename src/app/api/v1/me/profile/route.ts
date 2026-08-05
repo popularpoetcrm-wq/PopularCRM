@@ -55,6 +55,12 @@ const patchSchema = z.object({
   birth_date: z.string().optional().nullable(),
   tshirt_size: z.string().optional().nullable(),
   telegram_username: z.string().optional().nullable(),
+  invoice_street: z.string().optional().nullable(),
+  invoice_post_code: z.string().optional().nullable(),
+  invoice_city: z.string().optional().nullable(),
+  invoice_country: z.string().optional().nullable(),
+  invoice_nip: z.string().optional().nullable(),
+  invoice_company_name: z.string().optional().nullable(),
 });
 
 export async function PATCH(req: Request) {

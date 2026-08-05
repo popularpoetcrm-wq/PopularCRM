@@ -32,28 +32,52 @@ export async function POST(req: Request) {
   }
 
   try {
-    const { requestInvoice, syncInvoiceToSaldeo } = await import("@/domain/invoices");
+    const {
+      requestInvoice,
+      syncInvoiceToProvider,
+      getInvoiceProviderSetup,
+    } = await import("@/domain/invoices");
     const { getAdminClient } = await import("@/lib/supabase/admin");
-    const { getSaldeoSetup } = await import("@/integrations/saldeo");
+    const {
+      getInvoiceBillingProfile,
+      isBillingComplete,
+    } = await import("@/domain/billing");
     const db = getAdminClient();
+
+    const billing = await getInvoiceBillingProfile(db, user.personId);
+    if (!isBillingComplete(billing)) {
+      return jsonError(
+        "Заполните адрес для фактуры в профиле (улица, индекс, город)",
+        400,
+      );
+    }
+
     const invoice = await requestInvoice(db, {
       tenantId: user.tenantId,
       paymentId: parsed.data.paymentId,
       buyerPersonId: user.personId,
-      buyerType: parsed.data.buyerType,
-      companyName: parsed.data.companyName,
-      nip: parsed.data.nip,
+      buyerType:
+        parsed.data.buyerType === "company" ||
+        billing?.company_name ||
+        billing?.nip ||
+        parsed.data.companyName ||
+        parsed.data.nip
+          ? "company"
+          : "person",
+      companyName:
+        parsed.data.companyName || billing?.company_name || undefined,
+      nip: parsed.data.nip || billing?.nip || undefined,
       actorPersonId: user.personId,
     });
 
-    if (["sent_to_saldeo", "issued"].includes(invoice.status)) {
+    if (["issued", "sent_to_saldeo"].includes(invoice.status) && invoice.pdf_url) {
       return jsonOk(invoice);
     }
 
-    const setup = getSaldeoSetup();
-    if (!setup.configured) return jsonOk(invoice);
+    const { provider } = getInvoiceProviderSetup();
+    if (!provider) return jsonOk(invoice);
 
-    return jsonOk(await syncInvoiceToSaldeo(db, invoice.id, user.tenantId));
+    return jsonOk(await syncInvoiceToProvider(db, invoice.id, user.tenantId));
   } catch (e) {
     return jsonError(e instanceof Error ? e.message : "fail", 400);
   }

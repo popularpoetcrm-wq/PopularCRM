@@ -3,7 +3,6 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { activatePackageFromPayment } from "@/domain/packages";
 import {
   enqueueBestNotification,
-  enqueueNotification,
 } from "@/domain/notifications";
 import { writeAudit } from "@/domain/audit";
 import type { PackagePlanSnapshot } from "@/lib/types/domain";
@@ -219,13 +218,29 @@ export async function handleP24Webhook(
   });
 
   if (payment.payer_person_id) {
-    await enqueueNotification(db, {
-      tenantId,
-      recipientPersonId: payment.payer_person_id,
-      channel: "telegram",
-      templateCode: "payment.paid",
-      payload: { paymentId: payment.id },
-    });
+    try {
+      await enqueueBestNotification(db, {
+        tenantId,
+        recipientPersonId: payment.payer_person_id,
+        templateCode: "payment.paid",
+        payload: { paymentId: payment.id },
+        dedupeKey: `payment:${payment.id}:paid`,
+      });
+    } catch (e) {
+      // Payment is already committed; delivery must never roll it back.
+      console.warn("[p24 webhook] payment notification", e);
+    }
+
+    try {
+      const { issueInvoiceAfterPayment } = await import("@/domain/invoices");
+      await issueInvoiceAfterPayment(db, {
+        tenantId,
+        paymentId: payment.id,
+        buyerPersonId: payment.payer_person_id,
+      });
+    } catch (e) {
+      console.warn("[p24 webhook] invoice auto-issue", e);
+    }
   }
 
   return { verified: true, paymentId: payment.id };

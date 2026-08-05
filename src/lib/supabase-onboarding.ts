@@ -24,6 +24,12 @@ export type ProfilePatch = {
   birth_date?: string | null;
   tshirt_size?: string | null;
   telegram_username?: string | null;
+  invoice_street?: string | null;
+  invoice_post_code?: string | null;
+  invoice_city?: string | null;
+  invoice_country?: string | null;
+  invoice_nip?: string | null;
+  invoice_company_name?: string | null;
 };
 
 function cleanTg(raw?: string | null) {
@@ -60,6 +66,11 @@ export async function getPersonProfileDb(personId: string) {
     .select("username, telegram_user_id, verified_at")
     .eq("person_id", personId)
     .maybeSingle();
+
+  const { getInvoiceBillingProfile, isBillingComplete } = await import(
+    "@/domain/billing"
+  );
+  const billing = await getInvoiceBillingProfile(db, personId);
 
   const children = await getChildrenForParentDb(personId);
   const { data: parentLinks } = await db
@@ -106,6 +117,13 @@ export async function getPersonProfileDb(personId: string) {
       telegram_linked: Boolean(tg?.verified_at),
       telegram_username_linked: tg?.username ?? null,
       telegram_username: tg?.username ?? null,
+      invoice_street: billing?.street ?? "",
+      invoice_post_code: billing?.post_code ?? "",
+      invoice_city: billing?.city ?? "",
+      invoice_country: billing?.country ?? "PL",
+      invoice_nip: billing?.nip ?? "",
+      invoice_company_name: billing?.company_name ?? "",
+      billing_complete: isBillingComplete(billing),
     },
     children: await Promise.all(
       children.map(async (c) => {
@@ -211,6 +229,60 @@ export async function updatePersonProfileDb(personId: string, patch: ProfilePatc
       patch.telegram_username,
     );
   }
+
+  const billingPatch = {
+    full_name: patch.full_name,
+    email: patch.email,
+    phone: patch.phone,
+    street: patch.invoice_street ?? undefined,
+    post_code: patch.invoice_post_code ?? undefined,
+    city: patch.invoice_city ?? undefined,
+    country: patch.invoice_country ?? undefined,
+    nip: patch.invoice_nip,
+    company_name: patch.invoice_company_name,
+  };
+  const hasBillingUpdate = [
+    patch.invoice_street,
+    patch.invoice_post_code,
+    patch.invoice_city,
+    patch.invoice_country,
+    patch.invoice_nip,
+    patch.invoice_company_name,
+  ].some((v) => v !== undefined);
+  if (hasBillingUpdate) {
+    const { saveInvoiceBillingProfile, getInvoiceBillingProfile } = await import(
+      "@/domain/billing"
+    );
+    const currentBilling = await getInvoiceBillingProfile(db, personId);
+    await saveInvoiceBillingProfile(db, personId, {
+      full_name: billingPatch.full_name ?? currentBilling?.full_name,
+      email: billingPatch.email !== undefined ? billingPatch.email : currentBilling?.email,
+      phone: billingPatch.phone !== undefined ? billingPatch.phone : currentBilling?.phone,
+      street:
+        billingPatch.street !== undefined
+          ? billingPatch.street || ""
+          : currentBilling?.street || "",
+      post_code:
+        billingPatch.post_code !== undefined
+          ? billingPatch.post_code || ""
+          : currentBilling?.post_code || "",
+      city:
+        billingPatch.city !== undefined
+          ? billingPatch.city || ""
+          : currentBilling?.city || "",
+      country:
+        billingPatch.country !== undefined
+          ? billingPatch.country || "PL"
+          : currentBilling?.country || "PL",
+      nip:
+        billingPatch.nip !== undefined ? billingPatch.nip : currentBilling?.nip,
+      company_name:
+        billingPatch.company_name !== undefined
+          ? billingPatch.company_name
+          : currentBilling?.company_name,
+    });
+  }
+
   return getPersonProfileDb(personId);
 }
 

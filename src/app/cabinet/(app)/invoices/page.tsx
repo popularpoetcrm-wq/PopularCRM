@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { CabinetLoading } from "@/components/CabinetLoading";
 
 type Payment = { id: string; description: string; status: string; amount: number };
@@ -15,7 +16,7 @@ type Invoice = {
 const INVOICE_STATUS: Record<string, string> = {
   requested: "запрошена",
   queued: "в очереди",
-  sent_to_saldeo: "отправлена в Saldeo",
+  sent_to_saldeo: "в обработке",
   issued: "готова",
   failed: "ошибка",
   cancelled: "отменена",
@@ -31,20 +32,28 @@ export default function InvoicesPage() {
   const [payments, setPayments] = useState<Payment[]>([]);
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [message, setMessage] = useState("");
-  const [nip, setNip] = useState("");
-  const [companyName, setCompanyName] = useState("");
+  const [billingComplete, setBillingComplete] = useState(true);
   const [loading, setLoading] = useState(true);
 
   async function load() {
-    const res = await fetch("/api/v1/me/dashboard");
-    const json = await res.json();
-    if (json.ok) {
+    const [dashRes, profileRes] = await Promise.all([
+      fetch("/api/v1/me/dashboard"),
+      fetch("/api/v1/me/profile"),
+    ]);
+    const [dash, profile] = await Promise.all([
+      dashRes.json(),
+      profileRes.json(),
+    ]);
+    if (dash.ok) {
       setPayments(
-        (json.data.payments ?? []).filter((p: Payment) =>
+        (dash.data.payments ?? []).filter((p: Payment) =>
           ["pending", "paid", "partial"].includes(p.status),
         ),
       );
-      setInvoices(json.data.invoices ?? []);
+      setInvoices(dash.data.invoices ?? []);
+    }
+    if (profile.ok) {
+      setBillingComplete(Boolean(profile.data.person?.billing_complete));
     }
     setLoading(false);
   }
@@ -55,15 +64,14 @@ export default function InvoicesPage() {
 
   async function requestInvoice(paymentId: string) {
     setMessage("");
+    if (!billingComplete) {
+      setMessage("Сначала заполни адрес для фактуры в профиле");
+      return;
+    }
     const res = await fetch("/api/v1/invoices/request", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        paymentId,
-        buyerType: companyName || nip ? "company" : "person",
-        companyName: companyName || undefined,
-        nip: nip || undefined,
-      }),
+      body: JSON.stringify({ paymentId }),
     });
     const json = await res.json();
     setMessage(
@@ -81,22 +89,23 @@ export default function InvoicesPage() {
       <div>
         <h1 className="font-display text-3xl">Фактуры</h1>
         <p className="text-fog">
-          Фактуру можно запросить по оплаченному или открытому начислению. Пока
-          Saldeo без API-токена документ останется в очереди — номер и PDF
-          появятся только после выпуска, без фейкового «готово».
+          Фактура выставляется после оплаты (VAT 0%). В позиции: «Kurs aktorski —
+          4 zajęcia». PDF придёт в Telegram и будет здесь.
         </p>
       </div>
 
-      <div className="card-quiet grid gap-3 p-5 md:grid-cols-2">
-        <label className="text-sm font-semibold">
-          Компания (необязательно)
-          <input className="input mt-2" value={companyName} onChange={(e) => setCompanyName(e.target.value)} />
-        </label>
-        <label className="text-sm font-semibold">
-          NIP
-          <input className="input mt-2" value={nip} onChange={(e) => setNip(e.target.value)} />
-        </label>
-      </div>
+      {!billingComplete ? (
+        <div className="glass border-warn/40 p-5">
+          <p className="font-semibold text-warn">Нужны данные для фактуры</p>
+          <p className="mt-1 text-sm text-fog">
+            Укажи улицу, индекс и город покупателя — без этого фактуру не
+            выставим.
+          </p>
+          <Link href="/cabinet/profile" className="btn btn-stage mt-3 inline-flex">
+            Заполнить в профиле
+          </Link>
+        </div>
+      ) : null}
 
       {message ? <p className="text-sm text-stage-deep">{message}</p> : null}
 
@@ -122,7 +131,11 @@ export default function InvoicesPage() {
                     {p.amount} PLN · {PAYMENT_STATUS[p.status] ?? p.status}
                   </p>
                 </div>
-                <button className="btn btn-stage" onClick={() => requestInvoice(p.id)}>
+                <button
+                  className="btn btn-stage"
+                  disabled={!billingComplete}
+                  onClick={() => requestInvoice(p.id)}
+                >
                   Выставить фактуру
                 </button>
               </div>

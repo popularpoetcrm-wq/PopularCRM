@@ -27,6 +27,8 @@ export type DemoNotification = {
   template_code: string;
   text: string;
   status: "queued" | "sent" | "failed";
+  read_at?: string | null;
+  archived_at?: string | null;
   created_at: string;
 };
 

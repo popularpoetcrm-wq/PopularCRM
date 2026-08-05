@@ -18,6 +18,13 @@ type Person = {
   roles?: string[];
   is_minor?: boolean;
   onboarding_status?: string;
+  invoice_street?: string;
+  invoice_post_code?: string;
+  invoice_city?: string;
+  invoice_country?: string;
+  invoice_nip?: string;
+  invoice_company_name?: string;
+  billing_complete?: boolean;
 };
 
 type Child = Person & { id: string };
@@ -31,6 +38,12 @@ type ProfileForm = {
   birth_date: string;
   tshirt_size: string;
   telegram_username: string;
+  invoice_street: string;
+  invoice_post_code: string;
+  invoice_city: string;
+  invoice_country: string;
+  invoice_nip: string;
+  invoice_company_name: string;
 };
 
 const emptyForm: ProfileForm = {
@@ -40,6 +53,12 @@ const emptyForm: ProfileForm = {
   birth_date: "",
   tshirt_size: "",
   telegram_username: "",
+  invoice_street: "",
+  invoice_post_code: "",
+  invoice_city: "",
+  invoice_country: "PL",
+  invoice_nip: "",
+  invoice_company_name: "",
 };
 
 export default function ProfilePage() {
@@ -85,6 +104,12 @@ export default function ProfilePage() {
       birth_date: p.birth_date ?? "",
       tshirt_size: p.tshirt_size ?? "",
       telegram_username: (p.telegram_username ?? "").replace(/^@/, ""),
+      invoice_street: p.invoice_street ?? "",
+      invoice_post_code: p.invoice_post_code ?? "",
+      invoice_city: p.invoice_city ?? "",
+      invoice_country: p.invoice_country || "PL",
+      invoice_nip: p.invoice_nip ?? "",
+      invoice_company_name: p.invoice_company_name ?? "",
     });
     const avJson = await av.json();
     const fromApi = avJson.ok ? avJson.data.url : null;
@@ -128,6 +153,12 @@ export default function ProfilePage() {
         birth_date: form.birth_date || null,
         tshirt_size: form.tshirt_size || null,
         telegram_username: form.telegram_username || null,
+        invoice_street: form.invoice_street.trim() || null,
+        invoice_post_code: form.invoice_post_code.trim() || null,
+        invoice_city: form.invoice_city.trim() || null,
+        invoice_country: form.invoice_country.trim() || "PL",
+        invoice_nip: form.invoice_nip.trim() || null,
+        invoice_company_name: form.invoice_company_name.trim() || null,
       }),
     });
     const json = await res.json();
@@ -220,6 +251,84 @@ export default function ProfilePage() {
             {person?.roles?.length ? ` · роли: ${person.roles.join(", ")}` : ""}
           </span>
         </label>
+
+        <div className="border-t border-white/10 pt-4">
+          <h2 className="font-display text-xl">Данные для фактуры</h2>
+          <p className="mt-1 text-sm text-fog">
+            Адрес покупателя на фактуре. Без улицы, индекса и города фактуру
+            выставить нельзя.
+            {person?.billing_complete ? (
+              <span className="ml-1 text-stage-deep">Заполнено.</span>
+            ) : (
+              <span className="ml-1 text-warn">Нужно заполнить.</span>
+            )}
+          </p>
+          <label className="mt-3 block text-sm">
+            Улица и номер
+            <input
+              className="input mt-1"
+              value={form.invoice_street}
+              onChange={(e) => setForm({ ...form, invoice_street: e.target.value })}
+              placeholder="ul. Przykładowa 1/2"
+              required
+            />
+          </label>
+          <div className="mt-3 grid gap-3 sm:grid-cols-3">
+            <label className="block text-sm">
+              Индекс
+              <input
+                className="input mt-1"
+                value={form.invoice_post_code}
+                onChange={(e) =>
+                  setForm({ ...form, invoice_post_code: e.target.value })
+                }
+                placeholder="00-001"
+                required
+              />
+            </label>
+            <label className="block text-sm">
+              Город
+              <input
+                className="input mt-1"
+                value={form.invoice_city}
+                onChange={(e) => setForm({ ...form, invoice_city: e.target.value })}
+                placeholder="Warszawa"
+                required
+              />
+            </label>
+            <label className="block text-sm">
+              Страна
+              <input
+                className="input mt-1"
+                value={form.invoice_country}
+                onChange={(e) =>
+                  setForm({ ...form, invoice_country: e.target.value })
+                }
+                placeholder="PL"
+              />
+            </label>
+          </div>
+          <div className="mt-3 grid gap-3 sm:grid-cols-2">
+            <label className="block text-sm">
+              Компания (если фирма)
+              <input
+                className="input mt-1"
+                value={form.invoice_company_name}
+                onChange={(e) =>
+                  setForm({ ...form, invoice_company_name: e.target.value })
+                }
+              />
+            </label>
+            <label className="block text-sm">
+              NIP (если фирма)
+              <input
+                className="input mt-1"
+                value={form.invoice_nip}
+                onChange={(e) => setForm({ ...form, invoice_nip: e.target.value })}
+              />
+            </label>
+          </div>
+        </div>
 
         {message ? <p className="text-sm text-stage-deep">{message}</p> : null}
         <button className="btn btn-primary" type="submit" disabled={busy}>

@@ -34,19 +34,22 @@ export async function POST(req: Request) {
   const parsed = actionSchema.safeParse(await req.json().catch(() => ({})));
   if (!parsed.success) return jsonError("invoiceId required");
   if (!hasSupabase() || user.mode === "demo") {
-    return jsonError("Повторная отправка доступна только с Saldeo", 400);
+    return jsonError("Повторная отправка доступна только с провайдером фактур", 400);
   }
 
   try {
     const { getAdminClient } = await import("@/lib/supabase/admin");
-    const { getSaldeoSetup } = await import("@/integrations/saldeo");
-    const setup = getSaldeoSetup();
-    if (!setup.configured) {
-      return jsonError("Saldeo пока не настроен", 409, { saldeo: setup });
+    const {
+      getInvoiceProviderSetup,
+      syncInvoiceToProvider,
+      refreshInvoiceFromSaldeo,
+    } = await import("@/domain/invoices");
+    const providerInfo = getInvoiceProviderSetup();
+    if (!providerInfo.provider) {
+      return jsonError("Провайдер фактур не настроен", 409, {
+        provider: providerInfo,
+      });
     }
-    const { syncInvoiceToSaldeo, refreshInvoiceFromSaldeo } = await import(
-      "@/domain/invoices"
-    );
     const invoice =
       parsed.data.action === "refresh"
         ? await refreshInvoiceFromSaldeo(
@@ -54,7 +57,7 @@ export async function POST(req: Request) {
             parsed.data.invoiceId,
             user.tenantId,
           )
-        : await syncInvoiceToSaldeo(
+        : await syncInvoiceToProvider(
             getAdminClient(),
             parsed.data.invoiceId,
             user.tenantId,

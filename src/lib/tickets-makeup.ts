@@ -2,11 +2,15 @@ import { getEnv } from "@/lib/env";
 
 function ticketsBaseUrl() {
   const env = getEnv();
-  return (
+  const raw =
     env.TICKETS_PUBLIC_URL ||
     env.NEXT_PUBLIC_TICKETS_URL ||
-    "https://www.populartickets.pl"
-  ).replace(/\/$/, "");
+    "https://www.populartickets.pl";
+  const base = raw.replace(/\/$/, "");
+  if (base === "https://populartickets.pl") {
+    return "https://www.populartickets.pl";
+  }
+  return base;
 }
 
 function crmSecret() {

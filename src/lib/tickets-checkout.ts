@@ -20,18 +20,27 @@ export type TicketsCheckoutResult = {
 
 function ticketsBaseUrl() {
   const env = getEnv();
-  return (
+  const raw =
     env.TICKETS_PUBLIC_URL ||
     env.NEXT_PUBLIC_TICKETS_URL ||
-    "https://www.populartickets.pl"
-  ).replace(/\/$/, "");
+    "https://www.populartickets.pl";
+  const base = raw.replace(/\/$/, "");
+  // www accepts CRM checkout; apex may reject
+  if (base === "https://populartickets.pl") {
+    return "https://www.populartickets.pl";
+  }
+  return base;
 }
 
 function appBaseUrl() {
-  return (getEnv().NEXT_PUBLIC_APP_URL || "https://popularcrm.vercel.app").replace(
-    /\/$/,
-    "",
-  );
+  const url = (
+    getEnv().NEXT_PUBLIC_APP_URL || "https://popularcrm.vercel.app"
+  ).replace(/\/$/, "");
+  // Tickets allowlist is production HTTPS only
+  if (/localhost|127\.0\.0\.1/i.test(url)) {
+    return "https://popularcrm.vercel.app";
+  }
+  return url;
 }
 
 /** Create (or reuse) a PopularTickets CRM checkout that charges via P24. */

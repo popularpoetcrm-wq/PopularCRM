@@ -30,6 +30,10 @@ export const envSchema = z.object({
   SALDEO_API_TOKEN: z.string().optional(),
   SALDEO_COMPANY_PROGRAM_ID: z.string().optional(),
 
+  /** Fakturownia account subdomain, e.g. popularpoet */
+  FAKTUROWNIA_DOMAIN: z.string().optional(),
+  FAKTUROWNIA_API_TOKEN: z.string().optional(),
+
   RESEND_API_KEY: z.string().optional(),
   EMAIL_FROM: z.string().optional().default("Studio CRM <noreply@example.com>"),
 

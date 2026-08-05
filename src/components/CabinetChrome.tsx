@@ -7,7 +7,7 @@ const DOCK = [
   { href: "/cabinet", label: "Домой" },
   { href: "/cabinet/schedule", label: "Занятия" },
   { href: "/cabinet/payments", label: "Оплата" },
-  { href: "/cabinet/profile", label: "Профиль" },
+  { href: "/cabinet/inbox", label: "Важное" },
 ] as const;
 
 export function CabinetChrome({

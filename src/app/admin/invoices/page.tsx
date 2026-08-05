@@ -19,16 +19,17 @@ type Invoice = {
 const STATUS: Record<string, string> = {
   requested: "запрошена",
   queued: "в очереди",
-  sent_to_saldeo: "отправлена в Saldeo",
+  sent_to_saldeo: "в обработке",
   issued: "готова",
   failed: "ошибка",
   cancelled: "отменена",
 };
 
-type SaldeoSetup = {
+type ProviderSetup = {
   configured: boolean;
   missing: string[];
-  environment: "test" | "production";
+  environment?: "test" | "production";
+  activeProvider?: "fakturownia" | "saldeo" | null;
 };
 
 type Action = "send" | "refresh";
@@ -37,7 +38,7 @@ export default function AdminInvoicesPage() {
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [message, setMessage] = useState("");
   const [busyId, setBusyId] = useState<string | null>(null);
-  const [setup, setSetup] = useState<SaldeoSetup | null>(null);
+  const [setup, setSetup] = useState<ProviderSetup | null>(null);
   const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
@@ -79,11 +80,13 @@ export default function AdminInvoicesPage() {
           ? action === "refresh"
             ? json.data.status === "issued"
               ? "PDF готов — фактура доступна клиенту."
-              : "Saldeo ещё готовит PDF. Проверьте чуть позже."
-            : "Фактура отправлена в Saldeo. PDF может появиться не сразу."
+              : "Провайдер ещё готовит PDF. Проверьте чуть позже."
+            : json.data.status === "issued"
+              ? "Фактура выпущена, PDF доступен клиенту."
+              : "Фактура отправлена. PDF может появиться не сразу."
           : json.error ?? "Не удалось выполнить действие",
       );
-      if (json.saldeo) setSetup(json.saldeo);
+      if (json.data?.configured != null || json.provider) setSetup(json.data ?? json.provider);
       await load();
     } catch {
       setMessage("Не удалось связаться с CRM. Попробуйте ещё раз.");
@@ -92,9 +95,15 @@ export default function AdminInvoicesPage() {
     }
   }
 
+  const providerName =
+    setup?.activeProvider === "fakturownia"
+      ? "Fakturownia"
+      : setup?.activeProvider === "saldeo"
+        ? "Saldeo"
+        : "Провайдер фактур";
   const setupLabel = setup?.configured
-    ? `Saldeo подключен · ${setup.environment === "test" ? "тестовый" : "боевой"} контур`
-    : "Saldeo: ждём API-аккаунт";
+    ? `${providerName} подключен`
+    : "Провайдер фактур не настроен";
 
   return (
     <section className="space-y-5 sm:space-y-6">
@@ -122,10 +131,12 @@ export default function AdminInvoicesPage() {
         }`}
       >
         <div>
-          <p className="font-semibold">{setup ? setupLabel : "Проверяем Saldeo…"}</p>
+          <p className="font-semibold">{setup ? setupLabel : "Проверяем провайдер…"}</p>
           <p className="mt-1 text-sm text-fog">
             {setup?.configured
-              ? "Новые запросы отправляются автоматически, а PDF проверяется отдельно."
+              ? setup.activeProvider === "fakturownia"
+                ? "Запросы выставляются сразу в Fakturownia, PDF доступен клиенту."
+                : "Новые запросы отправляются автоматически, а PDF проверяется отдельно."
               : "Новые запросы остаются в очереди и не получают фейковый номер или PDF."}
           </p>
         </div>
@@ -213,8 +224,8 @@ export default function AdminInvoicesPage() {
                   {busyId === invoice.id
                     ? "Отправляем…"
                     : setup?.configured
-                      ? "Отправить в Saldeo"
-                      : "Ждём Saldeo"}
+                      ? "Выставить"
+                      : "Ждём провайдер"}
                 </button>
               ) : null}
               {invoice.status === "sent_to_saldeo" && !invoice.pdf_url ? (

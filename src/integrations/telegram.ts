@@ -108,6 +108,61 @@ export async function sendTelegramMessage(params: {
   return res.json();
 }
 
+/** Send a PDF/file to Telegram. Prefers uploading bytes; falls back to public URL. */
+export async function sendTelegramDocument(params: {
+  chatId: number | string;
+  filename: string;
+  caption?: string;
+  documentUrl?: string;
+  documentBytes?: Uint8Array;
+}) {
+  const env = getEnv();
+  if (!env.TELEGRAM_BOT_TOKEN) {
+    console.info("[telegram:dev:document]", params.chatId, params.filename, params.documentUrl);
+    return { ok: true, result: { message_id: 0 } };
+  }
+
+  const endpoint = `https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/sendDocument`;
+  const form = new FormData();
+  form.append("chat_id", String(params.chatId));
+  if (params.caption) form.append("caption", params.caption.slice(0, 1024));
+
+  let bytes = params.documentBytes;
+  if (!bytes && params.documentUrl) {
+    try {
+      const pdfRes = await fetch(params.documentUrl);
+      if (pdfRes.ok) {
+        bytes = new Uint8Array(await pdfRes.arrayBuffer());
+      }
+    } catch (e) {
+      console.warn("[telegram] pdf download failed, trying URL pass-through", e);
+    }
+  }
+
+  if (bytes) {
+    const ab = bytes.buffer.slice(
+      bytes.byteOffset,
+      bytes.byteOffset + bytes.byteLength,
+    ) as ArrayBuffer;
+    form.append(
+      "document",
+      new Blob([ab], { type: "application/pdf" }),
+      params.filename.endsWith(".pdf") ? params.filename : `${params.filename}.pdf`,
+    );
+  } else if (params.documentUrl) {
+    form.append("document", params.documentUrl);
+  } else {
+    throw new Error("Нет файла для отправки в Telegram");
+  }
+
+  const res = await fetch(endpoint, { method: "POST", body: form });
+  const json = (await res.json()) as { ok?: boolean; description?: string };
+  if (!res.ok || !json.ok) {
+    throw new Error(json.description || `Telegram sendDocument HTTP ${res.status}`);
+  }
+  return json;
+}
+
 export async function answerCallbackQuery(params: {
   callbackQueryId: string;
   text?: string;
@@ -138,7 +193,31 @@ export async function sendTemplatedTelegram(params: {
   templateCode: string;
   payload?: Record<string, unknown>;
 }) {
-  const text = renderTemplate(params.templateCode, params.payload ?? {});
+  const payload = params.payload ?? {};
+  const text = renderTemplate(params.templateCode, payload);
+
+  // Invoice: send PDF as a document (not just a link)
+  if (
+    params.templateCode === "invoice.ready" &&
+    typeof payload.pdfUrl === "string" &&
+    payload.pdfUrl
+  ) {
+    const number =
+      typeof payload.invoiceNumber === "string" && payload.invoiceNumber
+        ? payload.invoiceNumber
+        : "faktura";
+    try {
+      return await sendTelegramDocument({
+        chatId: params.chatId,
+        filename: `${number.replace(/[^\w.-]+/g, "_")}.pdf`,
+        caption: text,
+        documentUrl: payload.pdfUrl,
+      });
+    } catch (e) {
+      console.warn("[telegram] document send failed, falling back to text", e);
+    }
+  }
+
   return sendTelegramMessage({ chatId: params.chatId, text });
 }
 

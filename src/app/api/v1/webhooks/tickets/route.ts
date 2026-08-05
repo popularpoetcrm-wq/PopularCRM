@@ -56,7 +56,7 @@ export async function POST(req: Request) {
   try {
     const { getAdminClient } = await import("@/lib/supabase/admin");
     const { activatePackageFromPayment } = await import("@/domain/packages");
-    const { enqueueNotification } = await import("@/domain/notifications");
+    const { enqueueBestNotification } = await import("@/domain/notifications");
     const db = getAdminClient();
     const tenantId = getEnv().DEFAULT_TENANT_ID ?? DEMO_TENANT_ID;
     const paymentId = payload.crm_payment_id;
@@ -185,15 +185,26 @@ export async function POST(req: Request) {
 
     if (payment.payer_person_id) {
       try {
-        await enqueueNotification(db, {
+        await enqueueBestNotification(db, {
           tenantId,
           recipientPersonId: payment.payer_person_id,
-          channel: "telegram",
           templateCode: "payment.paid",
           payload: { paymentId: payment.id },
+          dedupeKey: `payment:${payment.id}:paid`,
         });
       } catch {
         /* non-fatal */
+      }
+
+      try {
+        const { issueInvoiceAfterPayment } = await import("@/domain/invoices");
+        await issueInvoiceAfterPayment(db, {
+          tenantId,
+          paymentId: payment.id,
+          buyerPersonId: payment.payer_person_id,
+        });
+      } catch (e) {
+        console.warn("[tickets webhook] invoice auto-issue", e);
       }
     }
 
