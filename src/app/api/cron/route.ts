@@ -9,7 +9,8 @@ import {
 
 function authorize(req: Request) {
   const secret = getEnv().CRON_SECRET;
-  if (!secret) return true;
+  // Keep local demo maintenance convenient, but never expose production jobs.
+  if (!secret) return process.env.NODE_ENV !== "production";
   return req.headers.get("authorization") === `Bearer ${secret}`;
 }
 
@@ -58,10 +59,16 @@ export async function GET(req: Request) {
       .from("notifications")
       .select("*")
       .lte("scheduled_at", new Date().toISOString())
+      .lt("delivery_attempts", 4)
       .limit(50);
     notesQuery =
       job === "retry_failed_notifications"
-        ? notesQuery.in("status", ["queued", "failed"])
+        ? notesQuery
+            .eq("status", "failed")
+            .lte(
+              "failed_at",
+              new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString(),
+            )
         : notesQuery.eq("status", "queued");
     const { data: notes } = await notesQuery;
 
@@ -107,6 +114,7 @@ export async function GET(req: Request) {
             sent_at: new Date().toISOString(),
             failed_at: null,
             error_message: null,
+            delivery_attempts: Number(n.delivery_attempts ?? 0) + 1,
           })
           .eq("id", n.id);
         sent += 1;
@@ -117,6 +125,7 @@ export async function GET(req: Request) {
             status: "failed",
             failed_at: new Date().toISOString(),
             error_message: e instanceof Error ? e.message : "fail",
+            delivery_attempts: Number(n.delivery_attempts ?? 0) + 1,
           })
           .eq("id", n.id);
         failed += 1;
@@ -366,6 +375,7 @@ export async function GET(req: Request) {
     const jobs = [
       "expire_makeup_credits",
       "expire_packages",
+      "retry_failed_notifications",
       "queue_payment_reminders",
       "queue_attendance_reminders",
       "queue_makeup_expiring",

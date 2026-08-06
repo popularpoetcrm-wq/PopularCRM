@@ -4,7 +4,6 @@ import type { BulkAttendanceItem, PackagePlanSnapshot } from "@/lib/types/domain
 import { writeAudit } from "@/domain/audit";
 import {
   enqueueBestNotification,
-  enqueueNotification,
 } from "@/domain/notifications";
 import { warsawDayRange } from "@/lib/format-date";
 import { STUDIO_POLICY, cutoffMinutes } from "@/lib/studio-policy";
@@ -165,17 +164,22 @@ async function maybeCreateMakeup(
   if (error) throw error;
 
   if (params.notify !== false) {
-    await enqueueNotification(db, {
-      tenantId: params.tenantId,
-      recipientPersonId: await notificationRecipient(db, params.studentPersonId),
-      channel: "telegram",
-      templateCode: "makeup.created",
-      payload: {
-        makeupCreditId: data.id,
-        validUntil: validUntil.toISOString(),
-        cabinetUrl: `${(process.env.NEXT_PUBLIC_APP_URL || "https://popularcrm.vercel.app").replace(/\/$/, "")}/cabinet/makeups`,
-      },
-    });
+    try {
+      await enqueueBestNotification(db, {
+        tenantId: params.tenantId,
+        recipientPersonId: await notificationRecipient(db, params.studentPersonId),
+        templateCode: "makeup.created",
+        payload: {
+          makeupCreditId: data.id,
+          validUntil: validUntil.toISOString(),
+          cabinetUrl: `${(process.env.NEXT_PUBLIC_APP_URL || "https://popularcrm.vercel.app").replace(/\/$/, "")}/cabinet/makeups`,
+        },
+        dedupeKey: `makeup:${data.id}:created`,
+      });
+    } catch (notificationError) {
+      // The credit exists already; a delivery outage must not break attendance.
+      console.error("[makeup] notification", notificationError);
+    }
   }
 
   return data;
@@ -299,16 +303,20 @@ export async function bulkUpsertAttendance(
           .eq("status", "available");
 
         if ((remaining.count ?? 0) === 1) {
-          await enqueueNotification(db, {
-            tenantId: params.tenantId,
-            recipientPersonId: await notificationRecipient(
-              db,
-              item.studentPersonId,
-            ),
-            channel: "telegram",
-            templateCode: "credits.low_balance",
-            payload: { remaining: 1, packageId: pkgOnEnrollment.id },
-          });
+          try {
+            await enqueueBestNotification(db, {
+              tenantId: params.tenantId,
+              recipientPersonId: await notificationRecipient(
+                db,
+                item.studentPersonId,
+              ),
+              templateCode: "credits.low_balance",
+              payload: { remaining: 1, packageId: pkgOnEnrollment.id },
+              dedupeKey: `package:${pkgOnEnrollment.id}:low-balance`,
+            });
+          } catch (notificationError) {
+            console.error("[credits] low balance notification", notificationError);
+          }
         }
       }
     }

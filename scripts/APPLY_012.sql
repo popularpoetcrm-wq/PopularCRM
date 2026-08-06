@@ -4,7 +4,8 @@
 alter table notifications
   add column if not exists read_at timestamptz,
   add column if not exists archived_at timestamptz,
-  add column if not exists dedupe_key text;
+  add column if not exists dedupe_key text,
+  add column if not exists delivery_attempts integer not null default 0;
 
 create index if not exists notifications_recipient_inbox_idx
   on notifications(tenant_id, recipient_person_id, created_at desc)
