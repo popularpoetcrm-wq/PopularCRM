@@ -11,7 +11,7 @@ create table if not exists person_invites (
   id uuid primary key default gen_random_uuid(),
   tenant_id uuid not null references tenants(id),
   person_id uuid not null references persons(id),
-  email citext not null,
+  email extensions.citext not null,
   token text not null unique,
   expires_at timestamptz not null,
   consumed_at timestamptz,

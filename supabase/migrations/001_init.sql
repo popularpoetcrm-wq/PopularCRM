@@ -1,6 +1,7 @@
 -- Studio CRM — core schema (tenant-ready)
-create extension if not exists "pgcrypto";
-create extension if not exists "citext";
+create schema if not exists extensions;
+create extension if not exists "pgcrypto" with schema extensions;
+create extension if not exists "citext" with schema extensions;
 
 -- ─── tenants ───────────────────────────────────────────────
 create table tenants (
@@ -19,7 +20,7 @@ create table persons (
   tenant_id uuid not null references tenants(id),
   full_name text not null,
   phone text,
-  email citext,
+  email extensions.citext,
   birth_date date,
   tshirt_size text,
   is_minor boolean not null default false,
@@ -75,7 +76,7 @@ create table student_contacts (
 create table magic_login_codes (
   id uuid primary key default gen_random_uuid(),
   tenant_id uuid not null references tenants(id),
-  email citext not null,
+  email extensions.citext not null,
   code text not null,
   expires_at timestamptz not null,
   consumed_at timestamptz,
@@ -358,7 +359,7 @@ create table audit_log (
 create index audit_log_tenant_created_idx on audit_log(tenant_id, created_at desc);
 
 -- ─── helper: remaining credits view ────────────────────────
-create or replace view v_package_balances as
+create or replace view v_package_balances with (security_invoker = true) as
 select
   sp.id as student_package_id,
   sp.tenant_id,
@@ -371,6 +372,9 @@ select
 from student_packages sp
 join lesson_credits lc on lc.student_package_id = sp.id
 group by sp.id;
+
+revoke all on v_package_balances from public, anon, authenticated;
+grant select on v_package_balances to service_role;
 
 -- ─── RLS (basic tenant isolation; refine with JWT claims later) ─
 alter table tenants enable row level security;
